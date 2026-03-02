@@ -17,7 +17,7 @@ from app.admin_store import (
     save_role_matrix,
     toggle_user,
 )
-from app.rbac import require_any_role, require_role
+from app.rbac import require_permission
 from app.schemas import AuthContext
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -61,7 +61,7 @@ class BulkRatePayload(BaseModel):
 
 @router.get("/org-settings")
 def get_org(
-    ctx: Annotated[AuthContext, Depends(require_role("ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:org:read"))],
 ):
     return get_org_settings(ctx.tenant_id)
 
@@ -69,14 +69,14 @@ def get_org(
 @router.put("/org-settings")
 def put_org(
     payload: OrgSettingsPayload,
-    ctx: Annotated[AuthContext, Depends(require_role("ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:org:write"))],
 ):
     return save_org_settings(ctx.tenant_id, payload.model_dump())
 
 
 @router.get("/users")
 def get_users(
-    ctx: Annotated[AuthContext, Depends(require_any_role("ADMIN", "FUNCTION_ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:user:read"))],
 ):
     return list_users(ctx.tenant_id)
 
@@ -84,7 +84,7 @@ def get_users(
 @router.post("/users")
 def post_user(
     payload: InviteUserPayload,
-    ctx: Annotated[AuthContext, Depends(require_role("ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:user:write"))],
 ):
     return invite_user(ctx.tenant_id, payload.email, payload.role)
 
@@ -92,7 +92,7 @@ def post_user(
 @router.patch("/users/{user_id}/toggle")
 def patch_user_toggle(
     user_id: str,
-    ctx: Annotated[AuthContext, Depends(require_role("ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:user:write"))],
 ):
     try:
         return toggle_user(ctx.tenant_id, user_id)
@@ -102,7 +102,7 @@ def patch_user_toggle(
 
 @router.get("/role-matrix")
 def get_matrix(
-    ctx: Annotated[AuthContext, Depends(require_any_role("ADMIN", "FUNCTION_ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:rbac:read"))],
 ):
     return get_role_matrix(ctx.tenant_id)
 
@@ -110,14 +110,14 @@ def get_matrix(
 @router.put("/role-matrix")
 def put_matrix(
     payload: RoleMatrixPayload,
-    ctx: Annotated[AuthContext, Depends(require_role("ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:rbac:write"))],
 ):
     return save_role_matrix(ctx.tenant_id, payload.matrix)
 
 
 @router.get("/feature-flags")
 def get_flags(
-    ctx: Annotated[AuthContext, Depends(require_role("ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:governance:read"))],
 ):
     return get_feature_flags(ctx.tenant_id)
 
@@ -125,14 +125,14 @@ def get_flags(
 @router.put("/feature-flags")
 def put_flags(
     payload: FeatureFlagsPayload,
-    ctx: Annotated[AuthContext, Depends(require_role("ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("admin:governance:write"))],
 ):
     return save_feature_flags(ctx.tenant_id, payload.flags)
 
 
 @router.get("/rate-cards")
 def get_rate_cards(
-    ctx: Annotated[AuthContext, Depends(require_role("FUNCTION_ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("pricebook:write"))],
 ):
     return list_rate_cards(ctx.tenant_id)
 
@@ -140,7 +140,7 @@ def get_rate_cards(
 @router.post("/rate-cards")
 def post_rate_card(
     payload: RateCardRowPayload,
-    ctx: Annotated[AuthContext, Depends(require_role("FUNCTION_ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("pricebook:write"))],
 ):
     return create_rate_card_row(ctx.tenant_id, payload.model_dump())
 
@@ -148,6 +148,6 @@ def post_rate_card(
 @router.post("/rate-cards/bulk-update")
 def post_rate_bulk(
     payload: BulkRatePayload,
-    ctx: Annotated[AuthContext, Depends(require_role("FUNCTION_ADMIN"))],
+    ctx: Annotated[AuthContext, Depends(require_permission("pricebook:write"))],
 ):
     return bulk_update_rate_cards(ctx.tenant_id, payload.pct)

@@ -2,12 +2,13 @@ from typing import Annotated
 from uuid import UUID
 
 import jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.admin_store import resolve_user_role
 from app.config import settings
-from app.rbac import require_permission
+from app.rbac import require_permission, resolved_permissions
 from app.schemas import AuthContext
 from app.security import get_current_auth_context
 
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 class DevTokenRequest(BaseModel):
     tenant_id: UUID
-    roles: list[str] = ["ADMIN"]
+    email: EmailStr
     scopes: list[str] = []
 
 
@@ -27,6 +28,7 @@ def me(ctx: Annotated[AuthContext, Depends(get_current_auth_context)]):
         "tenant_id": str(ctx.tenant_id),
         "roles": ctx.roles,
         "scopes": ctx.scopes,
+        "permissions": sorted(resolved_permissions(ctx)),
     }
 
 
@@ -39,11 +41,18 @@ def permissions_check(
 
 @router.post("/dev-token")
 def dev_token(payload: DevTokenRequest):
+    role = resolve_user_role(payload.tenant_id, payload.email)
+    if role is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is not provisioned for this tenant or is inactive",
+        )
+
     token = jwt.encode(
         {
-            "sub": "dev-user",
+            "sub": str(payload.email).lower(),
             "tenant_id": str(payload.tenant_id),
-            "roles": payload.roles,
+            "roles": [role],
             "scopes": payload.scopes,
             "aud": settings.jwt_audience,
             "iss": settings.jwt_issuer,

@@ -57,7 +57,7 @@ def test_admin_org_users_and_flags_flow() -> None:
     )
     assert update_org.status_code == 200
 
-    invite = client.post('/api/admin/users', headers=headers, json={"email": "new@tenant.com", "role": "END_USER"})
+    invite = client.post('/api/admin/users', headers=headers, json={"email": "new@tenant.com", "role": "SALES"})
     assert invite.status_code == 200
     uid = invite.json()['id']
 
@@ -78,9 +78,9 @@ def test_admin_org_users_and_flags_flow() -> None:
     assert put_flags.status_code == 200
 
 
-def test_rate_card_flow_for_function_admin() -> None:
+def test_rate_card_flow_for_operations_user() -> None:
     tenant_id = str(uuid4())
-    token = _token(tenant_id, "FUNCTION_ADMIN")
+    token = _token(tenant_id, "OPERATIONS")
     headers = _headers(tenant_id, token)
 
     list_resp = client.get('/api/admin/rate-cards', headers=headers)

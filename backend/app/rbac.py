@@ -8,6 +8,15 @@ from app.security import get_current_auth_context
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "ADMIN": {
+        "admin:manage",
+        "admin:org:read",
+        "admin:org:write",
+        "admin:user:read",
+        "admin:user:write",
+        "admin:rbac:read",
+        "admin:rbac:write",
+        "admin:governance:read",
+        "admin:governance:write",
         "catalog:read",
         "catalog:write",
         "pricebook:read",
@@ -18,6 +27,44 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "dashboard:read",
         "async:run",
     },
+    "SALES": {
+        "catalog:read",
+        "pricebook:read",
+        "quote:read",
+        "quote:write",
+        "approval:act",
+        "dashboard:read",
+    },
+    "OPERATIONS": {
+        "catalog:read",
+        "pricebook:read",
+        "pricebook:write",
+        "quote:read",
+        "quote:write",
+        "dashboard:read",
+    },
+    "FINANCE": {
+        "catalog:read",
+        "pricebook:read",
+        "quote:read",
+        "approval:act",
+        "dashboard:read",
+    },
+    "DELIVERY": {
+        "catalog:read",
+        "pricebook:read",
+        "quote:read",
+        "quote:write",
+        "dashboard:read",
+    },
+    "LEADERSHIP": {
+        "catalog:read",
+        "pricebook:read",
+        "quote:read",
+        "approval:act",
+        "dashboard:read",
+    },
+    # Backward compatibility for legacy roles during migration.
     "FUNCTION_ADMIN": {
         "catalog:read",
         "catalog:write",
@@ -36,13 +83,21 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "approval:act",
         "dashboard:read",
     },
+    "NORMAL_USER": {
+        "catalog:read",
+        "pricebook:read",
+        "quote:read",
+        "quote:write",
+        "approval:act",
+        "dashboard:read",
+    },
 }
 
 
-def _resolved_permissions(ctx: AuthContext) -> set[str]:
+def resolved_permissions(ctx: AuthContext) -> set[str]:
     role_permissions: set[str] = set()
     for role in ctx.roles:
-        role_permissions |= ROLE_PERMISSIONS.get(role, set())
+        role_permissions |= ROLE_PERMISSIONS.get(role.upper(), set())
     return role_permissions | set(ctx.scopes)
 
 
@@ -50,7 +105,7 @@ def require_permission(permission: str) -> Callable[[AuthContext], AuthContext]:
     def dependency(
         ctx: Annotated[AuthContext, Depends(get_current_auth_context)],
     ) -> AuthContext:
-        permissions = _resolved_permissions(ctx)
+        permissions = resolved_permissions(ctx)
         if permission not in permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

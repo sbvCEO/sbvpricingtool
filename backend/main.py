@@ -18,6 +18,7 @@ from app.routers.admin_console import router as admin_console_router
 from app.routers.auth import router as auth_router
 from app.routers.catalog import router as catalog_router
 from app.routers.enterprise import router as enterprise_router
+from app.routers.guided_quotes import router as guided_quotes_router
 from app.routers.integrations import router as integrations_router
 from app.routers.observability import router as observability_router
 from app.routers.plugins import router as plugins_router
@@ -119,6 +120,7 @@ app.include_router(catalog_router)
 app.include_router(price_books_router)
 app.include_router(quotes_router)
 app.include_router(approvals_router)
+app.include_router(guided_quotes_router)
 app.include_router(analytics_router)
 app.include_router(async_jobs_router)
 app.include_router(admin_console_router)

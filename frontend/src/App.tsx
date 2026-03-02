@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import './index.css'
 
-type Persona = 'ADMIN' | 'FUNCTION_ADMIN' | 'END_USER'
+type UserRole = 'ADMIN' | 'SALES' | 'OPERATIONS' | 'FINANCE' | 'DELIVERY' | 'LEADERSHIP'
 type AdminModule = 'ORG' | 'USERS' | 'ACCESS' | 'GOVERNANCE'
 type FunctionModule = 'DASHBOARD' | 'PRICEBOOKS' | 'CATALOG' | 'RULES' | 'RATECARDS' | 'APPROVAL_POLICIES'
 type EndUserModule = 'DASHBOARD' | 'QUOTE_CREATE' | 'REVISIONS' | 'APPROVALS' | 'OUTPUT'
@@ -53,7 +53,7 @@ type Metrics = {
 type LocalUser = {
   id: string
   email: string
-  role: Persona | 'CUSTOM'
+  role: UserRole | 'CUSTOM'
   active: boolean
 }
 
@@ -66,65 +66,76 @@ type RevisionDiffRow = {
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-const PERSONAS: Array<{ id: Persona; label: string; subtitle: string; capabilities: string }> = [
-  {
-    id: 'ADMIN',
-    label: 'Admin',
-    subtitle: 'Tenant & Security Owner',
-    capabilities: 'Tenant setup, users, security, governance',
-  },
-  {
-    id: 'FUNCTION_ADMIN',
-    label: 'Function Admin',
-    subtitle: 'Pricing & Commercial Operations',
-    capabilities: 'Catalog, price books, rules, approvals',
-  },
-  {
-    id: 'END_USER',
-    label: 'End User',
-    subtitle: 'Sales / Finance / Delivery',
-    capabilities: 'Quotes, approvals, dashboards',
-  },
-]
-
 const defaultRoleMatrix: Record<string, Record<string, boolean>> = {
   ADMIN: {
-    'quotes:view': true,
-    'quotes:edit': true,
-    'pricebooks:edit': true,
-    'analytics:view': true,
-    'margin:view': true,
-    'discount:view': true,
-    'export:quote': true,
+    'admin:manage': true,
+    'admin:org:read': true,
+    'admin:org:write': true,
+    'admin:user:read': true,
+    'admin:user:write': true,
+    'admin:rbac:read': true,
+    'admin:rbac:write': true,
+    'admin:governance:read': true,
+    'admin:governance:write': true,
+    'catalog:read': true,
+    'catalog:write': true,
+    'pricebook:read': true,
+    'pricebook:write': true,
+    'quote:read': true,
+    'quote:write': true,
+    'approval:act': true,
+    'dashboard:read': true,
+    'async:run': true,
   },
-  FUNCTION_ADMIN: {
-    'quotes:view': true,
-    'quotes:edit': true,
-    'pricebooks:edit': true,
-    'analytics:view': true,
-    'margin:view': true,
-    'discount:view': true,
-    'export:quote': true,
+  SALES: {
+    'catalog:read': true,
+    'pricebook:read': true,
+    'quote:read': true,
+    'quote:write': true,
+    'approval:act': true,
+    'dashboard:read': true,
   },
-  END_USER: {
-    'quotes:view': true,
-    'quotes:edit': true,
-    'pricebooks:edit': false,
-    'analytics:view': true,
-    'margin:view': false,
-    'discount:view': false,
-    'export:quote': true,
+  OPERATIONS: {
+    'catalog:read': true,
+    'pricebook:read': true,
+    'pricebook:write': true,
+    'quote:read': true,
+    'quote:write': true,
+    'dashboard:read': true,
+  },
+  FINANCE: {
+    'catalog:read': true,
+    'pricebook:read': true,
+    'quote:read': true,
+    'approval:act': true,
+    'dashboard:read': true,
+  },
+  DELIVERY: {
+    'catalog:read': true,
+    'pricebook:read': true,
+    'quote:read': true,
+    'quote:write': true,
+    'dashboard:read': true,
+  },
+  LEADERSHIP: {
+    'catalog:read': true,
+    'pricebook:read': true,
+    'quote:read': true,
+    'approval:act': true,
+    'dashboard:read': true,
   },
 }
 
 function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>((localStorage.getItem('theme') as 'light' | 'dark') || 'light')
   const [tenantId, setTenantId] = useState(localStorage.getItem('tenantId') || crypto.randomUUID())
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [persona, setPersona] = useState<Persona>('END_USER')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
+  const [refreshingCore, setRefreshingCore] = useState(false)
   const [token, setToken] = useState(localStorage.getItem('token') || '')
+  const [authProfile, setAuthProfile] = useState<{ roles: string[]; permissions: string[] } | null>(null)
 
   const [adminModule, setAdminModule] = useState<AdminModule>('ORG')
   const [functionModule, setFunctionModule] = useState<FunctionModule>('DASHBOARD')
@@ -140,6 +151,34 @@ function App() {
 
   const [quoteDraft, setQuoteDraft] = useState({ customer_external_id: '', currency: 'USD', region: 'US', price_book_id: '' })
   const [lineDraft, setLineDraft] = useState({ commercial_item_id: '', quantity: 1, discount_pct: 0 })
+  const [guidedStep, setGuidedStep] = useState(1)
+  const [guidedCustomerSearch, setGuidedCustomerSearch] = useState('')
+  const [guidedCustomers, setGuidedCustomers] = useState<any[]>([])
+  const [guidedCustomersLoading, setGuidedCustomersLoading] = useState(false)
+  const [guidedCustomerName, setGuidedCustomerName] = useState('')
+  const [guidedSelectedCustomerId, setGuidedSelectedCustomerId] = useState('')
+  const [guidedOpportunitySearch, setGuidedOpportunitySearch] = useState('')
+  const [guidedOpportunities, setGuidedOpportunities] = useState<any[]>([])
+  const [guidedOpportunitiesLoading, setGuidedOpportunitiesLoading] = useState(false)
+  const [guidedOpportunityName, setGuidedOpportunityName] = useState('')
+  const [guidedSelectedOpportunityId, setGuidedSelectedOpportunityId] = useState('')
+  const [guidedCustomerQuotes, setGuidedCustomerQuotes] = useState<Quote[]>([])
+  const [guidedQuotesLoading, setGuidedQuotesLoading] = useState(false)
+  const [guidedCloneQuoteId, setGuidedCloneQuoteId] = useState('')
+  const [guidedGeneral, setGuidedGeneral] = useState({
+    duration_type: 'ONETIME',
+    duration_value: 1,
+    valid_until: '',
+    price_book_id: '',
+    currency: 'USD',
+    region: 'US',
+    overall_discount_pct: 0,
+  })
+  const [guidedLines, setGuidedLines] = useState<Array<{ commercial_item_id: string; quantity_per_period: number; line_discount_pct: number }>>([
+    { commercial_item_id: '', quantity_per_period: 1, line_discount_pct: 0 },
+  ])
+  const [guidedResult, setGuidedResult] = useState<any | null>(null)
+  const [guidedGenerating, setGuidedGenerating] = useState(false)
   const [currentQuoteId, setCurrentQuoteId] = useState('')
   const [quoteLines, setQuoteLines] = useState<QuoteLine[]>([])
   const [preview, setPreview] = useState<any>(null)
@@ -168,11 +207,11 @@ function App() {
   })
   const [users, setUsers] = useState<LocalUser[]>([
     { id: crypto.randomUUID(), email: 'admin@tenant.com', role: 'ADMIN', active: true },
-    { id: crypto.randomUUID(), email: 'pricing@tenant.com', role: 'FUNCTION_ADMIN', active: true },
-    { id: crypto.randomUUID(), email: 'sales@tenant.com', role: 'END_USER', active: true },
+    { id: crypto.randomUUID(), email: 'sales@tenant.com', role: 'SALES', active: true },
+    { id: crypto.randomUUID(), email: 'ops@tenant.com', role: 'OPERATIONS', active: true },
   ])
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<LocalUser['role']>('END_USER')
+  const [inviteRole, setInviteRole] = useState<LocalUser['role']>('SALES')
   const [roleMatrix, setRoleMatrix] = useState(defaultRoleMatrix)
 
   const [newPriceBook, setNewPriceBook] = useState({ name: 'Regional Strategy', currency: 'USD' })
@@ -237,7 +276,14 @@ function App() {
   const [decisionAdjustDiscount, setDecisionAdjustDiscount] = useState(0)
   const [decisionComment, setDecisionComment] = useState('')
 
-  const personaConfig = useMemo(() => PERSONAS.find((p) => p.id === persona) || PERSONAS[0], [persona])
+  const activeRole = useMemo(() => authProfile?.roles?.[0] || 'UNKNOWN', [authProfile])
+  const permissionSet = useMemo(() => new Set(authProfile?.permissions || []), [authProfile?.permissions])
+  const isAdmin = permissionSet.has('admin:manage')
+  const canUseFunctionalSetup = isAdmin && (permissionSet.has('pricebook:write') || permissionSet.has('catalog:write'))
+  const workspaceTitle = isAdmin ? 'Admin Workspace' : 'Normal User Workspace'
+  const workspaceSubtitle = isAdmin
+    ? 'System setup and functional setup controls'
+    : `Role: ${activeRole} | Sales, Operations, Finance, Delivery, Leadership`
 
   const headers = useMemo(
     () => ({
@@ -279,6 +325,33 @@ function App() {
     () => catalogItems.find((item) => item.id === selectedCatalogItemId) || null,
     [catalogItems, selectedCatalogItemId],
   )
+  const selectedGuidedCustomer = useMemo(
+    () => guidedCustomers.find((customer) => customer.id === guidedSelectedCustomerId) || null,
+    [guidedCustomers, guidedSelectedCustomerId],
+  )
+  const selectedGuidedOpportunity = useMemo(
+    () => guidedOpportunities.find((opportunity) => opportunity.id === guidedSelectedOpportunityId) || null,
+    [guidedOpportunities, guidedSelectedOpportunityId],
+  )
+  const selectedGuidedPriceBook = useMemo(
+    () => priceBooks.find((book) => book.id === guidedGeneral.price_book_id) || null,
+    [priceBooks, guidedGeneral.price_book_id],
+  )
+  const guidedQuoteTerm = useMemo(() => {
+    if (guidedGeneral.duration_type === 'ONETIME') return 'Onetime'
+    const unit = guidedGeneral.duration_type === 'YEARS' ? 'Year(s)' : 'Month(s)'
+    return `${guidedGeneral.duration_value} ${unit}`
+  }, [guidedGeneral.duration_type, guidedGeneral.duration_value])
+  const guidedQuoteCurrency = guidedResult?.quote?.currency || guidedGeneral.currency || quoteDraft.currency || 'USD'
+  const guidedQuoteTotal = Number(guidedResult?.preview?.grand_total ?? preview?.grand_total ?? 0)
+  const guidedSummaryProgress = useMemo(() => {
+    let completed = 0
+    if (selectedGuidedCustomer?.name) completed += 1
+    if (selectedGuidedOpportunity?.name) completed += 1
+    if (selectedGuidedPriceBook?.name) completed += 1
+    if (guidedQuoteTotal > 0) completed += 1
+    return Math.round((completed / 4) * 100)
+  }, [selectedGuidedCustomer?.name, selectedGuidedOpportunity?.name, selectedGuidedPriceBook?.name, guidedQuoteTotal])
 
   const approvalImpact = useMemo(() => {
     const total = preview?.grand_total ?? 0
@@ -333,9 +406,9 @@ function App() {
     const errors: string[] = []
     if (lineDraft.quantity <= 0) errors.push('Quantity must be greater than 0')
     if (lineDraft.discount_pct > 100) errors.push('Discount cannot exceed 100%')
-    if (!quoteDraft.price_book_id && persona === 'END_USER') errors.push('Price book is required before quote creation')
+    if (!quoteDraft.price_book_id && !isAdmin) errors.push('Price book is required before quote creation')
     return errors
-  }, [lineDraft, quoteDraft.price_book_id, persona])
+  }, [lineDraft, quoteDraft.price_book_id, isAdmin])
 
   const warnings = useMemo(() => {
     const notes: string[] = []
@@ -359,11 +432,11 @@ function App() {
     return response.json()
   }
 
-  async function getDevToken(selectedPersona: Persona) {
+  async function getDevToken(userEmail: string) {
     const response = await fetch(`${API_BASE}/api/auth/dev-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenant_id: tenantId, roles: [selectedPersona] }),
+      body: JSON.stringify({ tenant_id: tenantId, email: userEmail }),
     })
     if (!response.ok) throw new Error('Authentication failed')
     const data = await response.json()
@@ -371,6 +444,24 @@ function App() {
     setToken(accessToken)
     localStorage.setItem('token', accessToken)
     localStorage.setItem('tenantId', tenantId)
+    return accessToken
+  }
+
+  async function hydrateAuthContext(accessToken: string) {
+    const response = await fetch(`${API_BASE}/api/auth/me`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tenant-Id': tenantId,
+        Authorization: `Bearer ${accessToken}`,
+        'X-User-Sub': email || 'ui-user',
+      },
+    })
+    if (!response.ok) throw new Error('Failed to load user permissions')
+    const data = await response.json()
+    setAuthProfile({
+      roles: data.roles || [],
+      permissions: data.permissions || [],
+    })
   }
 
   async function signIn(e: FormEvent) {
@@ -378,8 +469,9 @@ function App() {
     setLoading(true)
     setStatus('Signing in...')
     try {
-      await getDevToken(persona)
-      setStatus(`Signed in as ${personaConfig.label}`)
+      const accessToken = await getDevToken(email)
+      await hydrateAuthContext(accessToken)
+      setStatus('Signed in')
     } catch (error: any) {
       setStatus(error.message || 'Sign in failed')
     } finally {
@@ -391,8 +483,9 @@ function App() {
     setLoading(true)
     setStatus('Redirecting to SSO...')
     try {
-      await getDevToken(persona)
-      setStatus(`SSO handshake simulated for ${personaConfig.label}`)
+      const accessToken = await getDevToken(email)
+      await hydrateAuthContext(accessToken)
+      setStatus('SSO handshake simulated')
     } catch (error: any) {
       setStatus(error.message || 'SSO failed')
     } finally {
@@ -402,12 +495,14 @@ function App() {
 
   function signOut() {
     setToken('')
+    setAuthProfile(null)
     localStorage.removeItem('token')
     setStatus('Signed out')
   }
 
   async function refreshCore() {
     if (!token) return
+    setRefreshingCore(true)
     try {
       const [items, books, quoteList, dash, audits, obs] = await Promise.all([
         request('/api/catalog/items'),
@@ -430,6 +525,9 @@ function App() {
       if (!pricingConfig.price_book_id && books.length > 0) {
         setPricingConfig((prev) => ({ ...prev, price_book_id: books[0].id, currency: books[0].currency }))
       }
+      if (!guidedGeneral.price_book_id && books.length > 0) {
+        setGuidedGeneral((prev) => ({ ...prev, price_book_id: books[0].id, currency: books[0].currency }))
+      }
       if (!lineDraft.commercial_item_id && items.length > 0) {
         setLineDraft((prev) => ({ ...prev, commercial_item_id: items[0].id }))
       }
@@ -438,41 +536,33 @@ function App() {
       }
     } catch (error: any) {
       setStatus(error.message)
+    } finally {
+      setRefreshingCore(false)
     }
   }
 
-  async function loadPersonaData() {
-    if (!token) return
+  async function loadAdminData() {
+    if (!token || !isAdmin) return
     try {
-      if (persona === 'ADMIN') {
-        const [org, usr, matrix, flags] = await Promise.all([
-          request('/api/admin/org-settings'),
-          request('/api/admin/users'),
-          request('/api/admin/role-matrix'),
-          request('/api/admin/feature-flags'),
-        ])
-        setOrgSettings(org)
-        setUsers(usr)
-        setRoleMatrix(matrix)
-        setFeatureFlags(flags)
-      }
-      if (persona === 'FUNCTION_ADMIN') {
-        const [rates, usr, matrix] = await Promise.all([
-          request('/api/admin/rate-cards'),
-          request('/api/admin/users').catch(() => users),
-          request('/api/admin/role-matrix').catch(() => roleMatrix),
-        ])
-        setRateCardRows(rates)
-        setUsers(usr)
-        setRoleMatrix(matrix)
-      }
+      const [org, usr, matrix, flags, rates] = await Promise.all([
+        request('/api/admin/org-settings'),
+        request('/api/admin/users'),
+        request('/api/admin/role-matrix'),
+        request('/api/admin/feature-flags'),
+        request('/api/admin/rate-cards').catch(() => []),
+      ])
+      setOrgSettings(org)
+      setUsers(usr)
+      setRoleMatrix(matrix)
+      setFeatureFlags(flags)
+      setRateCardRows(rates)
     } catch (error: any) {
       setStatus(error.message)
     }
   }
 
   async function loadFunctionData() {
-    if (!token || persona !== 'FUNCTION_ADMIN') return
+    if (!token || !canUseFunctionalSetup) return
     try {
       const [entryList, ruleList, policyList] = await Promise.all([
         pricingConfig.price_book_id ? request(`/api/price-books/${pricingConfig.price_book_id}/entries`).catch(() => []) : Promise.resolve([]),
@@ -487,17 +577,198 @@ function App() {
     }
   }
 
+  async function loadGuidedCustomers(search = '') {
+    if (!token) return
+    setGuidedCustomersLoading(true)
+    try {
+      const data = await request(`/api/guided-quotes/customers?search=${encodeURIComponent(search)}`)
+      setGuidedCustomers(data)
+    } catch (error: any) {
+      setStatus(error.message)
+    } finally {
+      setGuidedCustomersLoading(false)
+    }
+  }
+
+  async function loadGuidedOpportunities(customerId: string, search = '') {
+    if (!token || !customerId) return
+    setGuidedOpportunitiesLoading(true)
+    try {
+      const data = await request(`/api/guided-quotes/opportunities?customer_id=${encodeURIComponent(customerId)}&search=${encodeURIComponent(search)}`)
+      setGuidedOpportunities(data)
+    } catch (error: any) {
+      setStatus(error.message)
+    } finally {
+      setGuidedOpportunitiesLoading(false)
+    }
+  }
+
+  async function loadCustomerQuoteHistory(customerId: string) {
+    if (!token || !customerId) return
+    setGuidedQuotesLoading(true)
+    try {
+      const data = await request(`/api/guided-quotes/customers/${customerId}/quotes`)
+      setGuidedCustomerQuotes(data)
+    } catch (error: any) {
+      setStatus(error.message)
+    } finally {
+      setGuidedQuotesLoading(false)
+    }
+  }
+
+  async function createGuidedCustomer() {
+    if (!guidedCustomerName.trim()) return
+    try {
+      const customer = await request('/api/guided-quotes/customers', {
+        method: 'POST',
+        body: JSON.stringify({ name: guidedCustomerName.trim() }),
+      })
+      setGuidedCustomerName('')
+      setGuidedSelectedCustomerId(customer.id)
+      await loadGuidedCustomers(guidedCustomerSearch)
+      await loadGuidedOpportunities(customer.id)
+      setStatus(`Customer created: ${customer.name}`)
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  async function createGuidedOpportunity() {
+    if (!guidedSelectedCustomerId || !guidedOpportunityName.trim()) return
+    try {
+      const opp = await request('/api/guided-quotes/opportunities', {
+        method: 'POST',
+        body: JSON.stringify({
+          customer_id: guidedSelectedCustomerId,
+          name: guidedOpportunityName.trim(),
+          stage: 'QUALIFICATION',
+          amount: 0,
+        }),
+      })
+      setGuidedOpportunityName('')
+      setGuidedSelectedOpportunityId(opp.id)
+      await loadGuidedOpportunities(guidedSelectedCustomerId, guidedOpportunitySearch)
+      setStatus(`Opportunity created: ${opp.name}`)
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  function updateGuidedLine(index: number, patch: Partial<{ commercial_item_id: string; quantity_per_period: number; line_discount_pct: number }>) {
+    setGuidedLines((prev) => prev.map((line, idx) => (idx === index ? { ...line, ...patch } : line)))
+  }
+
+  function addGuidedLine() {
+    setGuidedLines((prev) => [...prev, { commercial_item_id: '', quantity_per_period: 1, line_discount_pct: 0 }])
+  }
+
+  function removeGuidedLine(index: number) {
+    setGuidedLines((prev) => prev.filter((_, idx) => idx !== index))
+  }
+
+  function buildGuidedSchedule(quantityPerPeriod: number) {
+    const periods = guidedGeneral.duration_type === 'ONETIME' ? 1 : Math.max(1, Number(guidedGeneral.duration_value || 1))
+    const schedule: Record<number, number> = {}
+    for (let idx = 1; idx <= periods; idx += 1) schedule[idx] = Number(quantityPerPeriod || 0)
+    return schedule
+  }
+
+  async function generateGuidedQuote() {
+    if (!guidedSelectedCustomerId) {
+      setStatus('Select a customer first')
+      return
+    }
+    if (!guidedGeneral.price_book_id) {
+      setStatus('Select a price book in general questions')
+      return
+    }
+
+    const lineItems = guidedLines
+      .filter((line) => line.commercial_item_id)
+      .map((line) => ({
+        commercial_item_id: line.commercial_item_id,
+        line_discount_pct: Number(line.line_discount_pct || 0),
+        quantity_schedule: buildGuidedSchedule(Number(line.quantity_per_period || 0)),
+      }))
+
+    if (lineItems.length === 0 && !guidedCloneQuoteId) {
+      setStatus('Add at least one product line or choose quote clone')
+      return
+    }
+
+    setGuidedGenerating(true)
+    try {
+      const generated = await request('/api/guided-quotes/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          customer_id: guidedSelectedCustomerId,
+          opportunity_id: guidedSelectedOpportunityId || null,
+          clone_quote_id: guidedCloneQuoteId || null,
+          general: {
+            duration_type: guidedGeneral.duration_type,
+            duration_value: Number(guidedGeneral.duration_value || 1),
+            valid_until: guidedGeneral.valid_until || null,
+            price_book_id: guidedGeneral.price_book_id,
+            currency: guidedGeneral.currency,
+            region: guidedGeneral.region,
+            overall_discount_pct: Number(guidedGeneral.overall_discount_pct || 0),
+          },
+          line_items: lineItems,
+        }),
+      })
+
+      const quote = generated.quote
+      setGuidedResult(generated)
+      setCurrentQuoteId(quote.id)
+      setQuoteDraft((prev) => ({
+        ...prev,
+        customer_external_id: quote.customer_external_id || guidedSelectedCustomerId,
+        price_book_id: quote.price_book_id,
+        currency: quote.currency,
+        region: quote.region || prev.region,
+      }))
+      await refreshQuoteDetails(quote.id)
+      await refreshCore()
+      setGuidedStep(7)
+      setStatus(`Guided quote generated: ${quote.quote_no}`)
+    } catch (error: any) {
+      setStatus(error.message)
+    } finally {
+      setGuidedGenerating(false)
+    }
+  }
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
   useEffect(() => {
     if (token) void refreshCore()
   }, [token])
 
   useEffect(() => {
-    if (token) void loadPersonaData()
-  }, [token, persona])
+    if (token && !authProfile) void hydrateAuthContext(token)
+  }, [token, authProfile, tenantId, email])
 
   useEffect(() => {
-    if (token && persona === 'FUNCTION_ADMIN') void loadFunctionData()
-  }, [token, persona, pricingConfig.price_book_id])
+    if (token && isAdmin) void loadAdminData()
+  }, [token, isAdmin])
+
+  useEffect(() => {
+    if (token && canUseFunctionalSetup) void loadFunctionData()
+  }, [token, canUseFunctionalSetup, pricingConfig.price_book_id])
+
+  useEffect(() => {
+    if (!token || isAdmin || endUserModule !== 'QUOTE_CREATE') return
+    void loadGuidedCustomers(guidedCustomerSearch)
+  }, [token, isAdmin, endUserModule, guidedCustomerSearch])
+
+  useEffect(() => {
+    if (!token || !guidedSelectedCustomerId || isAdmin || endUserModule !== 'QUOTE_CREATE') return
+    void loadGuidedOpportunities(guidedSelectedCustomerId, guidedOpportunitySearch)
+    if (guidedStep >= 3) void loadCustomerQuoteHistory(guidedSelectedCustomerId)
+  }, [token, isAdmin, endUserModule, guidedSelectedCustomerId, guidedOpportunitySearch, guidedStep])
 
   const approvalPendingQuotes = useMemo(
     () => quotes.filter((q) => q.status === 'APPROVAL_PENDING'),
@@ -1072,7 +1343,7 @@ function App() {
       })
       setInviteEmail('')
       setStatus('User invited')
-      await loadPersonaData()
+      await loadAdminData()
     } catch (error: any) {
       setStatus(error.message)
     }
@@ -1082,7 +1353,7 @@ function App() {
     try {
       await request(`/api/admin/users/${userId}/toggle`, { method: 'PATCH' })
       setStatus('User state updated')
-      await loadPersonaData()
+      await loadAdminData()
     } catch (error: any) {
       setStatus(error.message)
     }
@@ -1155,7 +1426,7 @@ function App() {
       })
       setRateCardDraft({ role: '', delivery: 'REMOTE', rate: 100, region: 'US', effective: '2026-01-01' })
       setStatus('Rate card row added')
-      await loadPersonaData()
+      await loadAdminData()
     } catch (error: any) {
       setStatus(error.message)
     }
@@ -1167,27 +1438,14 @@ function App() {
         <div className="ambient-orb ambient-a" />
         <div className="ambient-orb ambient-b" />
 
-        <aside className="persona-panel">
-          <p className="eyebrow">CPQ Identity</p>
-          <h1>Smart Pricing Platform Login</h1>
-          <p className="panel-copy">Choose your operating persona. Workspace experience and permissions are shaped from this selection.</p>
-
-          <div className="persona-list">
-            {PERSONAS.map((p) => (
-              <button key={p.id} className={`persona-card ${p.id === persona ? 'active' : ''}`} onClick={() => setPersona(p.id)} type="button">
-                <strong>{p.label}</strong>
-                <small>{p.subtitle}</small>
-                <span>{p.capabilities}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
-
         <main className="login-panel">
           <form className="login-form" onSubmit={signIn}>
             <p className="eyebrow">Secure Access</p>
-            <h2>{personaConfig.label} Sign In</h2>
-            <p className="helper">{personaConfig.subtitle}</p>
+            <h2>Smart Pricing Platform Login</h2>
+            <p className="helper">Single login for all users. Permissions control screen access.</p>
+            <button type="button" className="secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
+              Switch to {theme === 'light' ? 'Dark' : 'Light'} Mode
+            </button>
 
             <label>
               Work Email
@@ -1201,7 +1459,6 @@ function App() {
               Tenant ID
               <input type="text" value={tenantId} onChange={(e) => setTenantId(e.target.value)} required />
             </label>
-
             <div className="action-row">
               <button type="submit" disabled={loading}>{loading ? 'Please wait...' : 'Sign In'}</button>
               <button type="button" className="secondary" onClick={ssoSignIn} disabled={loading}>Continue with SSO</button>
@@ -1217,18 +1474,21 @@ function App() {
     <div className="workspace-shell app-shell">
       <header className="workspace-head">
         <div>
-          <p className="eyebrow">{personaConfig.label} Workspace</p>
-          <h1>{personaConfig.label}</h1>
-          <p>{personaConfig.subtitle}</p>
+          <p className="eyebrow">{workspaceTitle}</p>
+          <h1>{workspaceTitle}</h1>
+          <p>{workspaceSubtitle}</p>
         </div>
         <div className="header-actions">
-          <button className="secondary" onClick={() => refreshCore()}>Refresh</button>
+          <button className="secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
+            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+          </button>
+          <button className="secondary" onClick={() => refreshCore()} disabled={refreshingCore}>{refreshingCore ? 'Refreshing...' : 'Refresh'}</button>
           <button onClick={signOut}>Sign Out</button>
         </div>
       </header>
 
       <section className="module-tabs">
-        {persona === 'ADMIN' && (
+        {isAdmin && (
           <>
             <button className={adminModule === 'ORG' ? 'active' : ''} onClick={() => setAdminModule('ORG')}>Tenant Setup</button>
             <button className={adminModule === 'USERS' ? 'active' : ''} onClick={() => setAdminModule('USERS')}>Users & Roles</button>
@@ -1236,7 +1496,7 @@ function App() {
             <button className={adminModule === 'GOVERNANCE' ? 'active' : ''} onClick={() => setAdminModule('GOVERNANCE')}>Governance</button>
           </>
         )}
-        {persona === 'FUNCTION_ADMIN' && (
+        {canUseFunctionalSetup && (
           <>
             <button className={functionModule === 'DASHBOARD' ? 'active' : ''} onClick={() => setFunctionModule('DASHBOARD')}>Control Tower</button>
             <button className={functionModule === 'PRICEBOOKS' ? 'active' : ''} onClick={() => setFunctionModule('PRICEBOOKS')}>Pricing Simulator</button>
@@ -1246,7 +1506,7 @@ function App() {
             <button className={functionModule === 'APPROVAL_POLICIES' ? 'active' : ''} onClick={() => setFunctionModule('APPROVAL_POLICIES')}>Approval Policies</button>
           </>
         )}
-        {persona === 'END_USER' && (
+        {!isAdmin && (
           <>
             <button className={endUserModule === 'DASHBOARD' ? 'active' : ''} onClick={() => setEndUserModule('DASHBOARD')}>Dashboard</button>
             <button className={endUserModule === 'QUOTE_CREATE' ? 'active' : ''} onClick={() => setEndUserModule('QUOTE_CREATE')}>Quote Creation</button>
@@ -1257,8 +1517,8 @@ function App() {
         )}
       </section>
 
-      {persona === 'ADMIN' && adminModule === 'ORG' && (
-        <main className="workspace-grid two-col">
+      {isAdmin && adminModule === 'ORG' && (
+        <main className="workspace-grid two-col page-admin-org">
           <section className="card-panel">
             <h2>Organization Profile</h2>
             <div className="stack">
@@ -1288,16 +1548,19 @@ function App() {
         </main>
       )}
 
-      {persona === 'ADMIN' && adminModule === 'USERS' && (
-        <main className="workspace-grid two-col">
+      {isAdmin && adminModule === 'USERS' && (
+        <main className="workspace-grid two-col page-admin-users">
           <section className="card-panel">
             <h2>Invite User</h2>
             <form className="stack" onSubmit={inviteUser}>
               <input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="user@company.com" required />
               <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as LocalUser['role'])}>
                 <option value="ADMIN">ADMIN</option>
-                <option value="FUNCTION_ADMIN">FUNCTION_ADMIN</option>
-                <option value="END_USER">END_USER</option>
+                <option value="SALES">SALES</option>
+                <option value="OPERATIONS">OPERATIONS</option>
+                <option value="FINANCE">FINANCE</option>
+                <option value="DELIVERY">DELIVERY</option>
+                <option value="LEADERSHIP">LEADERSHIP</option>
                 <option value="CUSTOM">CUSTOM</option>
               </select>
               <button type="submit">Invite / Add User</button>
@@ -1323,8 +1586,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'ADMIN' && adminModule === 'ACCESS' && (
-        <main className="workspace-grid one-col">
+      {isAdmin && adminModule === 'ACCESS' && (
+        <main className="workspace-grid one-col page-admin-access">
           <section className="card-panel">
             <h2>Role Permission Matrix</h2>
             <div className="matrix-grid">
@@ -1344,8 +1607,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'ADMIN' && adminModule === 'GOVERNANCE' && (
-        <main className="workspace-grid two-col">
+      {isAdmin && adminModule === 'GOVERNANCE' && (
+        <main className="workspace-grid two-col page-admin-governance">
           <section className="card-panel">
             <h2>Tenant Governance Snapshot</h2>
             <div className="kpi-strip">
@@ -1373,8 +1636,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'FUNCTION_ADMIN' && functionModule === 'DASHBOARD' && (
-        <main className="workspace-grid one-col function-admin-dashboard">
+      {canUseFunctionalSetup && functionModule === 'DASHBOARD' && (
+        <main className="workspace-grid one-col function-admin-dashboard page-fn-dashboard">
           <section className="card-panel function-hero">
             <div>
               <p className="eyebrow">Function Admin Control Tower</p>
@@ -1530,7 +1793,7 @@ function App() {
             <section className="card-panel admin-table-card">
               <div className="section-head">
                 <h3>Users & Roles</h3>
-                <button className="secondary" onClick={() => setStatus('Use Admin persona for invite/disable and role edits.')}>Manage in Admin Console</button>
+                <button className="secondary" onClick={() => setStatus('Admin access is required for invite/disable and role edits.')}>Manage in Admin Console</button>
               </div>
               <div className="admin-table-wrap">
                 <table className="admin-table">
@@ -1557,7 +1820,7 @@ function App() {
             <section className="card-panel admin-table-card">
               <div className="section-head">
                 <h3>Quotes by Status</h3>
-                <button className="secondary" onClick={() => setStatus('Switch to End User persona for full quote workspace.')}>Open Deal Workspace</button>
+                <button className="secondary" onClick={() => setStatus('Use a Normal User role for the full quote workspace.')}>Open Deal Workspace</button>
               </div>
               <div className="kpi-strip compact">
                 <div><strong>Draft</strong><span>{metrics?.draft_quotes ?? 0}</span></div>
@@ -1585,8 +1848,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'FUNCTION_ADMIN' && functionModule === 'PRICEBOOKS' && (
-        <main className="workspace-grid two-col">
+      {canUseFunctionalSetup && functionModule === 'PRICEBOOKS' && (
+        <main className="workspace-grid two-col page-fn-pricebooks">
           <section className="card-panel">
             <h2>Price Book Management</h2>
             <form className="stack" onSubmit={createAndPublishPriceBook}>
@@ -1647,8 +1910,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'FUNCTION_ADMIN' && functionModule === 'CATALOG' && (
-        <main className="workspace-grid two-col">
+      {canUseFunctionalSetup && functionModule === 'CATALOG' && (
+        <main className="workspace-grid two-col page-fn-catalog">
           <section className="card-panel">
             <h2>Commercial Item Management</h2>
             <form className="stack" onSubmit={createCatalogItem}>
@@ -1680,8 +1943,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'FUNCTION_ADMIN' && functionModule === 'RULES' && (
-        <main className="workspace-grid two-col">
+      {canUseFunctionalSetup && functionModule === 'RULES' && (
+        <main className="workspace-grid two-col page-fn-rules">
           <section className="card-panel">
             <h2>Human-readable Rule Builder</h2>
             <form className="stack" onSubmit={createRule}>
@@ -1719,8 +1982,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'FUNCTION_ADMIN' && functionModule === 'RATECARDS' && (
-        <main className="workspace-grid two-col">
+      {canUseFunctionalSetup && functionModule === 'RATECARDS' && (
+        <main className="workspace-grid two-col page-fn-ratecards">
           <section className="card-panel">
             <h2>Labor Rate Card</h2>
             <form className="stack" onSubmit={addRateCardRow}>
@@ -1753,8 +2016,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'FUNCTION_ADMIN' && functionModule === 'APPROVAL_POLICIES' && (
-        <main className="workspace-grid two-col">
+      {canUseFunctionalSetup && functionModule === 'APPROVAL_POLICIES' && (
+        <main className="workspace-grid two-col page-fn-approval-policies">
           <section className="card-panel">
             <h2>Approval Policy Definition</h2>
             <form className="stack" onSubmit={createApprovalPolicy}>
@@ -1778,8 +2041,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'END_USER' && endUserModule === 'DASHBOARD' && (
-        <main className="workspace-grid one-col">
+      {!isAdmin && endUserModule === 'DASHBOARD' && (
+        <main className="workspace-grid one-col page-enduser-dashboard">
           <section className="card-panel">
             <h2>Dashboard & Visibility</h2>
             <div className="kpi-strip">
@@ -1818,13 +2081,299 @@ function App() {
                   )}
                 </li>
               ))}
+              {filteredQuotes.length === 0 && (
+                <li className="empty-state">No quotes match this filter yet.</li>
+              )}
             </ul>
           </section>
         </main>
       )}
 
-      {persona === 'END_USER' && endUserModule === 'QUOTE_CREATE' && (
-        <main className="quote-workspace">
+      {!isAdmin && endUserModule === 'QUOTE_CREATE' && (
+        <main className="quote-workspace guided-two-panel">
+          <aside className="card-panel guided-summary-panel">
+            <p className="eyebrow">Quote Summary</p>
+            <h3>Live Context</h3>
+            <div className="guided-meter">
+              <div className="guided-meter-head">
+                <span>Completion</span>
+                <strong>{guidedSummaryProgress}%</strong>
+              </div>
+              <div className="guided-meter-track">
+                <div className="guided-meter-fill" style={{ width: `${guidedSummaryProgress}%` }} />
+              </div>
+            </div>
+            <div className="stack">
+              <div className="preview">
+                <p><strong>Customer Name</strong></p>
+                <div className="guided-summary-line">
+                  <p>{selectedGuidedCustomer?.name || ''}</p>
+                  <span className={`guided-chip ${selectedGuidedCustomer?.name ? 'ready' : 'pending'}`}>
+                    {selectedGuidedCustomer?.name ? 'Ready' : 'Pending'}
+                  </span>
+                </div>
+              </div>
+              <div className="preview">
+                <p><strong>Opportunity Name</strong></p>
+                <div className="guided-summary-line">
+                  <p>{selectedGuidedOpportunity?.name || ''}</p>
+                  <span className={`guided-chip ${selectedGuidedOpportunity?.name ? 'ready' : 'pending'}`}>
+                    {selectedGuidedOpportunity?.name ? 'Ready' : 'Pending'}
+                  </span>
+                </div>
+              </div>
+              <div className="preview">
+                <p><strong>Quote Details</strong></p>
+                <p>1. Quote Term: {guidedQuoteTerm}</p>
+                <p>2. Pricebook Used: {selectedGuidedPriceBook?.name || '-'}</p>
+                <p className="guided-total">3. Quote Total ({guidedQuoteCurrency}): {guidedQuoteTotal.toFixed(2)}</p>
+              </div>
+            </div>
+          </aside>
+
+          <section className="guided-workhorse-panel">
+          <section className="card-panel">
+            <div className="section-head">
+              <h2>Guided Quote Generation</h2>
+              <span className="quote-meta">Step {guidedStep} of 7</span>
+            </div>
+
+            {guidedStep === 1 && (
+              <div className="stack guided-step-pane" key="guided-step-1">
+                <h3>Select Customer</h3>
+                <input
+                  placeholder="Search customers"
+                  value={guidedCustomerSearch}
+                  onChange={(e) => setGuidedCustomerSearch(e.target.value)}
+                />
+                <div className="split-half">
+                  <div className="stack">
+                    {guidedCustomersLoading && (
+                      <>
+                        <div className="skeleton-row" />
+                        <div className="skeleton-row" />
+                        <div className="skeleton-row" />
+                      </>
+                    )}
+                    {guidedCustomers.map((customer) => (
+                      <button
+                        key={customer.id}
+                        type="button"
+                        className={guidedSelectedCustomerId === customer.id ? '' : 'secondary'}
+                        onClick={() => setGuidedSelectedCustomerId(customer.id)}
+                      >
+                        {customer.name} ({customer.external_id})
+                      </button>
+                    ))}
+                    {!guidedCustomersLoading && guidedCustomers.length === 0 && (
+                      <div className="empty-state">No customers found. Create a new customer to continue.</div>
+                    )}
+                  </div>
+                  <div className="stack">
+                    <input
+                      placeholder="Create new customer"
+                      value={guidedCustomerName}
+                      onChange={(e) => setGuidedCustomerName(e.target.value)}
+                    />
+                    <button type="button" onClick={() => void createGuidedCustomer()}>Create Customer</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {guidedStep === 2 && (
+              <div className="stack guided-step-pane" key="guided-step-2">
+                <h3>Select Opportunity</h3>
+                <input
+                  placeholder="Search opportunities"
+                  value={guidedOpportunitySearch}
+                  onChange={(e) => setGuidedOpportunitySearch(e.target.value)}
+                />
+                <div className="split-half">
+                  <div className="stack">
+                    {guidedOpportunitiesLoading && (
+                      <>
+                        <div className="skeleton-row" />
+                        <div className="skeleton-row" />
+                      </>
+                    )}
+                    {guidedOpportunities.map((opp) => (
+                      <button
+                        key={opp.id}
+                        type="button"
+                        className={guidedSelectedOpportunityId === opp.id ? '' : 'secondary'}
+                        onClick={() => setGuidedSelectedOpportunityId(opp.id)}
+                      >
+                        {opp.name} ({opp.stage})
+                      </button>
+                    ))}
+                    {!guidedOpportunitiesLoading && guidedOpportunities.length === 0 && (
+                      <div className="empty-state">No opportunities found. Create one and continue.</div>
+                    )}
+                  </div>
+                  <div className="stack">
+                    <input
+                      placeholder="Create new opportunity"
+                      value={guidedOpportunityName}
+                      onChange={(e) => setGuidedOpportunityName(e.target.value)}
+                    />
+                    <button type="button" onClick={() => void createGuidedOpportunity()}>Create Opportunity</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {guidedStep === 3 && (
+              <div className="stack guided-step-pane" key="guided-step-3">
+                <h3>Clone Existing Quote or Start New</h3>
+                <button type="button" className={guidedCloneQuoteId ? 'secondary' : ''} onClick={() => setGuidedCloneQuoteId('')}>
+                  Start New Quote
+                </button>
+                {guidedCustomerQuotes.map((quote) => (
+                  <button
+                    key={quote.id}
+                    type="button"
+                    className={guidedCloneQuoteId === quote.id ? '' : 'secondary'}
+                    onClick={() => setGuidedCloneQuoteId(quote.id)}
+                  >
+                    Clone {quote.quote_no} ({quote.status}) ${Number(quote.grand_total || 0).toFixed(2)}
+                  </button>
+                ))}
+                {guidedQuotesLoading && (
+                  <>
+                    <div className="skeleton-row" />
+                    <div className="skeleton-row" />
+                  </>
+                )}
+                {!guidedQuotesLoading && guidedCustomerQuotes.length === 0 && (
+                  <div className="empty-state">No existing quotes for this customer. Proceed with a new quote.</div>
+                )}
+              </div>
+            )}
+
+            {guidedStep === 4 && (
+              <div className="stack guided-step-pane" key="guided-step-4">
+                <h3>General Questions</h3>
+                <div className="inline-fields">
+                  <select value={guidedGeneral.duration_type} onChange={(e) => setGuidedGeneral((prev) => ({ ...prev, duration_type: e.target.value }))}>
+                    <option value="ONETIME">Onetime</option>
+                    <option value="YEARS">Years</option>
+                    <option value="MONTHS">Months</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={1}
+                    value={guidedGeneral.duration_value}
+                    onChange={(e) => setGuidedGeneral((prev) => ({ ...prev, duration_value: Number(e.target.value) }))}
+                  />
+                </div>
+                <div className="inline-fields">
+                  <input
+                    type="date"
+                    value={guidedGeneral.valid_until}
+                    onChange={(e) => setGuidedGeneral((prev) => ({ ...prev, valid_until: e.target.value }))}
+                  />
+                  <select value={guidedGeneral.price_book_id} onChange={(e) => setGuidedGeneral((prev) => ({ ...prev, price_book_id: e.target.value }))}>
+                    <option value="">Select Price Book</option>
+                    {priceBooks.map((book) => <option key={book.id} value={book.id}>{book.name} ({book.status})</option>)}
+                  </select>
+                </div>
+                <div className="inline-fields">
+                  <select value={guidedGeneral.currency} onChange={(e) => setGuidedGeneral((prev) => ({ ...prev, currency: e.target.value }))}>
+                    {['USD', 'EUR', 'GBP', 'INR'].map((cur) => <option key={cur}>{cur}</option>)}
+                  </select>
+                  <input value={guidedGeneral.region} onChange={(e) => setGuidedGeneral((prev) => ({ ...prev, region: e.target.value }))} placeholder="Region" />
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={guidedGeneral.overall_discount_pct}
+                    onChange={(e) => setGuidedGeneral((prev) => ({ ...prev, overall_discount_pct: Number(e.target.value) }))}
+                    placeholder="Overall Discount %"
+                  />
+                </div>
+              </div>
+            )}
+
+            {guidedStep === 5 && (
+              <div className="stack guided-step-pane" key="guided-step-5">
+                <h3>Products, Quantities, Discounts</h3>
+                {guidedLines.map((line, idx) => (
+                  <div key={`guided-line-${idx}`} className="inline-fields">
+                    <select value={line.commercial_item_id} onChange={(e) => updateGuidedLine(idx, { commercial_item_id: e.target.value })}>
+                      <option value="">Select Product</option>
+                      {catalogItems.map((item) => <option key={item.id} value={item.id}>{item.item_code} - {item.name}</option>)}
+                    </select>
+                    <input
+                      type="number"
+                      min={1}
+                      value={line.quantity_per_period}
+                      onChange={(e) => updateGuidedLine(idx, { quantity_per_period: Number(e.target.value) })}
+                      placeholder="Qty / period"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={line.line_discount_pct}
+                      onChange={(e) => updateGuidedLine(idx, { line_discount_pct: Number(e.target.value) })}
+                      placeholder="Line discount %"
+                    />
+                    <button type="button" className="secondary" onClick={() => removeGuidedLine(idx)} disabled={guidedLines.length <= 1}>Remove</button>
+                  </div>
+                ))}
+                <button type="button" className="secondary" onClick={addGuidedLine}>Add Product</button>
+              </div>
+            )}
+
+            {guidedStep === 6 && (
+              <div className="stack guided-step-pane" key="guided-step-6">
+                <h3>Generate Quote</h3>
+                <p className="quote-meta">Review your selections and generate quote with full calculation.</p>
+                <button type="button" onClick={() => void generateGuidedQuote()} disabled={guidedGenerating}>
+                  {guidedGenerating ? 'Generating Quote...' : 'Generate Quote'}
+                </button>
+              </div>
+            )}
+
+            {guidedStep === 7 && (
+              <div className="stack guided-step-pane" key="guided-step-7">
+                <h3>Review and Regenerate</h3>
+                <p className="quote-meta">Generated quote can be edited below and regenerated anytime.</p>
+                {guidedResult && (
+                  <div className="preview">
+                    <p>Quote: {guidedResult.quote?.quote_no}</p>
+                    <p>Subtotal: ${Number(guidedResult.computation?.subtotal || 0).toFixed(2)}</p>
+                    <p>Grand Total: ${Number(guidedResult.preview?.grand_total || 0).toFixed(2)}</p>
+                    <p>Margin: {Number(guidedResult.preview?.margin_pct || 0).toFixed(2)}%</p>
+                  </div>
+                )}
+                <button type="button" className="secondary" onClick={() => setGuidedStep(5)}>Edit Products and Regenerate</button>
+                <button type="button" onClick={() => void generateGuidedQuote()} disabled={guidedGenerating}>
+                  {guidedGenerating ? 'Regenerating...' : 'Regenerate Quote'}
+                </button>
+              </div>
+            )}
+
+            <div className="inline-fields">
+              <button type="button" className="secondary" disabled={guidedStep <= 1} onClick={() => setGuidedStep((prev) => Math.max(1, prev - 1))}>Back</button>
+              <button
+                type="button"
+                disabled={
+                  (guidedStep === 1 && !guidedSelectedCustomerId)
+                  || (guidedStep === 2 && !guidedSelectedOpportunityId && guidedOpportunities.length > 0)
+                  || guidedStep >= 6
+                }
+                onClick={() => {
+                  if (guidedStep === 2 && guidedSelectedCustomerId) void loadCustomerQuoteHistory(guidedSelectedCustomerId)
+                  setGuidedStep((prev) => Math.min(7, prev + 1))
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </section>
+
           <section className="quote-header-sticky card-panel">
             <div className="quote-header-top">
               <div>
@@ -2155,11 +2704,12 @@ function App() {
               )}
             </aside>
           )}
+          </section>
         </main>
       )}
 
-      {persona === 'END_USER' && endUserModule === 'REVISIONS' && (
-        <main className="workspace-grid two-col">
+      {!isAdmin && endUserModule === 'REVISIONS' && (
+        <main className="workspace-grid two-col page-enduser-revisions">
           <section className="card-panel">
             <h2>Quote Revisioning</h2>
             <div className="stack">
@@ -2198,8 +2748,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'END_USER' && endUserModule === 'APPROVALS' && (
-        <main className="decision-workspace">
+      {!isAdmin && endUserModule === 'APPROVALS' && (
+        <main className="decision-workspace page-enduser-approvals">
           <section className="card-panel decision-header">
             <div>
               <p className="eyebrow">Approval Decision Workspace</p>
@@ -2341,8 +2891,8 @@ function App() {
         </main>
       )}
 
-      {persona === 'END_USER' && endUserModule === 'OUTPUT' && (
-        <main className="workspace-grid two-col">
+      {!isAdmin && endUserModule === 'OUTPUT' && (
+        <main className="workspace-grid two-col page-enduser-output">
           <section className="card-panel">
             <h2>Quote Output / Sharing</h2>
             <div className="stack">

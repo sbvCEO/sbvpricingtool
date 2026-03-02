@@ -63,7 +63,7 @@ def test_auth_tenant_mismatch_forbidden() -> None:
 
 def test_catalog_crud_and_bundle_link() -> None:
     tenant_id = str(uuid4())
-    token = _token(tenant_id, roles=["FUNCTION_ADMIN"])
+    token = _token(tenant_id, roles=["ADMIN"])
     headers = _headers(tenant_id, token)
 
     bundle_resp = client.post(
@@ -112,7 +112,7 @@ def test_catalog_crud_and_bundle_link() -> None:
 
 def test_catalog_write_permission_enforced() -> None:
     tenant_id = str(uuid4())
-    token = _token(tenant_id, roles=["END_USER"], scopes=["catalog:read"])
+    token = _token(tenant_id, roles=["SALES"], scopes=["catalog:read"])
     headers = _headers(tenant_id, token)
 
     response = client.post(
