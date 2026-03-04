@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 class DevTokenRequest(BaseModel):
     tenant_id: UUID
     email: EmailStr
+    password: str
     scopes: list[str] = []
 
 
@@ -41,7 +42,7 @@ def permissions_check(
 
 @router.post("/dev-token")
 def dev_token(payload: DevTokenRequest):
-    role = resolve_user_role(payload.tenant_id, payload.email)
+    role = resolve_user_role(payload.tenant_id, payload.email, payload.password)
     if role is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

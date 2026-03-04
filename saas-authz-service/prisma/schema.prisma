@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum Plan {
+  FREE
+  TRIAL
+  PRO
+  ENTERPRISE
+}
+
+enum MembershipRole {
+  TENANT_ADMIN
+  TENANT_USER
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum InternalRole {
+  INTERNAL_SAAS_OPERATOR
+}
+
+enum ActorType {
+  SYSTEM
+  INTERNAL
+  TENANT
+}
+
+model Tenant {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String
+  status    TenantStatus @default(ACTIVE)
+  plan      Plan         @default(TRIAL)
+  region    String
+  domain    String?      @unique
+  limits    Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  memberships   Membership[]
+  invites       TenantInvite[]
+  settings      TenantSetting?
+  projects      Project[]
+  usage         TenantUsage?
+  breakGlass    BreakGlassSession[]
+  auditLogs     AuditLog[]
+
+  @@map("tenants")
+}
+
+model User {
+  id          String    @id @default(uuid()) @db.Uuid
+  authSubject String    @unique @map("auth_subject")
+  email       String    @unique
+  name        String?
+  isInternal  Boolean   @default(false) @map("is_internal")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  memberships            Membership[]
+  internalRole           InternalRoleAssignment?
+  createdInvites         TenantInvite[]       @relation("invite_creator")
+  breakGlassInitiated    BreakGlassSession[]  @relation("breakglass_internal_user")
+  breakGlassApprovedBy   BreakGlassSession[]  @relation("breakglass_approver")
+  auditLogsAsActor       AuditLog[]           @relation("audit_actor")
+
+  @@map("users")
+}
+
+model Membership {
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  role      MembershipRole
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+model TenantInvite {
+  id              String         @id @default(uuid()) @db.Uuid
+  tenantId        String         @map("tenant_id") @db.Uuid
+  email           String
+  role            MembershipRole
+  tokenHash       String         @map("token_hash")
+  expiresAt       DateTime       @map("expires_at")
+  acceptedAt      DateTime?      @map("accepted_at")
+  createdByUserId String?        @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy  User?  @relation("invite_creator", fields: [createdByUserId], references: [id])
+
+  @@index([tenantId, email])
+  @@map("tenant_invites")
+}
+
+model InternalRoleAssignment {
+  userId String       @id @map("user_id") @db.Uuid
+  role   InternalRole @default(INTERNAL_SAAS_OPERATOR)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("internal_roles")
+}
+
+model BreakGlassSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  internalUserId   String    @map("internal_user_id") @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  reason           String
+  approvedByUserId String?   @map("approved_by_user_id") @db.Uuid
+  startsAt         DateTime  @map("starts_at")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  internalUser User  @relation("breakglass_internal_user", fields: [internalUserId], references: [id], onDelete: Cascade)
+  tenant       Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  approvedBy   User? @relation("breakglass_approver", fields: [approvedByUserId], references: [id])
+
+  @@index([internalUserId, tenantId, expiresAt])
+  @@map("break_glass_sessions")
+}
+
+model AuditLog {
+  id          String    @id @default(uuid()) @db.Uuid
+  actorUserId String?   @map("actor_user_id") @db.Uuid
+  actorType   ActorType @map("actor_type")
+  tenantId    String?   @map("tenant_id") @db.Uuid
+  action      String
+  targetType  String    @map("target_type")
+  targetId    String    @map("target_id")
+  metadata    Json
+  ipAddress   String?   @map("ip_address")
+  userAgent   String?   @map("user_agent")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  actor  User?   @relation("audit_actor", fields: [actorUserId], references: [id])
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model TenantSetting {
+  tenantId      String @id @map("tenant_id") @db.Uuid
+  branding      Json
+  integrations  Json
+  ssoConfig     Json   @map("sso_config")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_settings")
+}
+
+model Project {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("projects")
+}
+
+model TenantUsage {
+  tenantId      String   @id @map("tenant_id") @db.Uuid
+  usersCount    Int      @default(0) @map("users_count")
+  projectsCount Int      @default(0) @map("projects_count")
+  storageUsedMb Int      @default(0) @map("storage_used_mb")
+  lastActivityAt DateTime? @map("last_activity_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_usage")
+}

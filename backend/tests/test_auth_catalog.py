@@ -125,3 +125,33 @@ def test_catalog_write_permission_enforced() -> None:
         },
     )
     assert response.status_code == 403
+
+
+def test_dev_token_requires_valid_seed_credentials() -> None:
+    tenant_id = str(uuid4())
+
+    admin_resp = client.post(
+        "/api/auth/dev-token",
+        json={"tenant_id": tenant_id, "email": "admin@spt.com", "password": "r@ndom11"},
+    )
+    assert admin_resp.status_code == 200
+    admin_token = admin_resp.json()["access_token"]
+    admin_me = client.get("/api/auth/me", headers=_headers(tenant_id, admin_token))
+    assert admin_me.status_code == 200
+    assert "ADMIN" in admin_me.json()["roles"]
+
+    sales_resp = client.post(
+        "/api/auth/dev-token",
+        json={"tenant_id": tenant_id, "email": "user@spt.com", "password": "r@ndom11"},
+    )
+    assert sales_resp.status_code == 200
+    sales_token = sales_resp.json()["access_token"]
+    sales_me = client.get("/api/auth/me", headers=_headers(tenant_id, sales_token))
+    assert sales_me.status_code == 200
+    assert "SALES" in sales_me.json()["roles"]
+
+    bad_password = client.post(
+        "/api/auth/dev-token",
+        json={"tenant_id": tenant_id, "email": "user@spt.com", "password": "wrong-pass"},
+    )
+    assert bad_password.status_code == 401

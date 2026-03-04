@@ -127,7 +127,6 @@ const defaultRoleMatrix: Record<string, Record<string, boolean>> = {
 }
 
 function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>((localStorage.getItem('theme') as 'light' | 'dark') || 'light')
   const [tenantId, setTenantId] = useState(localStorage.getItem('tenantId') || crypto.randomUUID())
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -432,13 +431,16 @@ function App() {
     return response.json()
   }
 
-  async function getDevToken(userEmail: string) {
+  async function getDevToken(userEmail: string, userPassword: string) {
     const response = await fetch(`${API_BASE}/api/auth/dev-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenant_id: tenantId, email: userEmail }),
+      body: JSON.stringify({ tenant_id: tenantId, email: userEmail, password: userPassword }),
     })
-    if (!response.ok) throw new Error('Authentication failed')
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({ detail: 'Authentication failed' }))
+      throw new Error(data.detail || 'Authentication failed')
+    }
     const data = await response.json()
     const accessToken = data.access_token as string
     setToken(accessToken)
@@ -469,7 +471,7 @@ function App() {
     setLoading(true)
     setStatus('Signing in...')
     try {
-      const accessToken = await getDevToken(email)
+      const accessToken = await getDevToken(email, password)
       await hydrateAuthContext(accessToken)
       setStatus('Signed in')
     } catch (error: any) {
@@ -483,7 +485,7 @@ function App() {
     setLoading(true)
     setStatus('Redirecting to SSO...')
     try {
-      const accessToken = await getDevToken(email)
+      const accessToken = await getDevToken(email, password)
       await hydrateAuthContext(accessToken)
       setStatus('SSO handshake simulated')
     } catch (error: any) {
@@ -739,9 +741,9 @@ function App() {
   }
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('theme', theme)
-  }, [theme])
+    document.documentElement.setAttribute('data-theme', 'light')
+    localStorage.setItem('theme', 'light')
+  }, [])
 
   useEffect(() => {
     if (token) void refreshCore()
@@ -1442,10 +1444,6 @@ function App() {
           <form className="login-form" onSubmit={signIn}>
             <p className="eyebrow">Secure Access</p>
             <h2>Smart Pricing Platform Login</h2>
-            <p className="helper">Single login for all users. Permissions control screen access.</p>
-            <button type="button" className="secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
-              Switch to {theme === 'light' ? 'Dark' : 'Light'} Mode
-            </button>
 
             <label>
               Work Email
@@ -1479,9 +1477,6 @@ function App() {
           <p>{workspaceSubtitle}</p>
         </div>
         <div className="header-actions">
-          <button className="secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
-            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
-          </button>
           <button className="secondary" onClick={() => refreshCore()} disabled={refreshingCore}>{refreshingCore ? 'Refreshing...' : 'Refresh'}</button>
           <button onClick={signOut}>Sign Out</button>
         </div>

@@ -3,6 +3,11 @@ from uuid import UUID, uuid4
 
 from app.admin_repo import admin_repo
 
+DEFAULT_LOGIN_USERS = [
+    {"email": "admin@spt.com", "role": "ADMIN", "password": "r@ndom11", "active": True},
+    {"email": "user@spt.com", "role": "SALES", "password": "r@ndom11", "active": True},
+]
+
 
 def _default_state() -> dict[str, Any]:
     return {
@@ -17,12 +22,12 @@ def _default_state() -> dict[str, Any]:
             "logo_url": "",
         },
         "users": [
-            {"id": str(uuid4()), "email": "admin@tenant.com", "role": "ADMIN", "active": True},
-            {"id": str(uuid4()), "email": "sales@tenant.com", "role": "SALES", "active": True},
-            {"id": str(uuid4()), "email": "ops@tenant.com", "role": "OPERATIONS", "active": True},
-            {"id": str(uuid4()), "email": "finance@tenant.com", "role": "FINANCE", "active": True},
-            {"id": str(uuid4()), "email": "delivery@tenant.com", "role": "DELIVERY", "active": True},
-            {"id": str(uuid4()), "email": "leadership@tenant.com", "role": "LEADERSHIP", "active": True},
+            {"id": str(uuid4()), "email": user["email"], "role": user["role"], "active": user["active"]}
+            for user in DEFAULT_LOGIN_USERS
+        ],
+        "auth_directory": [
+            {"email": user["email"], "password": user["password"], "role": user["role"], "active": user["active"]}
+            for user in DEFAULT_LOGIN_USERS
         ],
         "role_matrix": {
             "ADMIN": {
@@ -105,12 +110,44 @@ def _ensure_guided_state(state: dict[str, Any]) -> None:
     state.setdefault("opportunities", [])
 
 
+def _ensure_auth_directory(state: dict[str, Any]) -> None:
+    auth_directory = state.setdefault("auth_directory", [])
+    by_email = {
+        str(entry.get("email", "")).strip().lower(): entry
+        for entry in auth_directory
+        if entry.get("email")
+    }
+    users = state.setdefault("users", [])
+    user_by_email = {str(user.get("email", "")).strip().lower(): user for user in users if user.get("email")}
+
+    for seed in DEFAULT_LOGIN_USERS:
+        email = seed["email"].strip().lower()
+
+        user_entry = user_by_email.get(email)
+        if user_entry is None:
+            users.append({"id": str(uuid4()), "email": seed["email"], "role": seed["role"], "active": seed["active"]})
+        else:
+            user_entry["role"] = seed["role"]
+            user_entry["active"] = seed["active"]
+
+        auth_entry = by_email.get(email)
+        if auth_entry is None:
+            auth_directory.append(
+                {"email": seed["email"], "password": seed["password"], "role": seed["role"], "active": seed["active"]}
+            )
+        else:
+            auth_entry["role"] = seed["role"]
+            auth_entry["password"] = seed["password"]
+            auth_entry["active"] = seed["active"]
+
+
 def _ensure(tenant_id: UUID) -> dict[str, Any]:
     state = admin_repo.get_state(tenant_id)
     if state is None:
         state = _default_state()
         admin_repo.save_state(tenant_id, state)
     _ensure_guided_state(state)
+    _ensure_auth_directory(state)
     return state
 
 
@@ -133,10 +170,22 @@ def list_users(tenant_id: UUID) -> list[dict[str, Any]]:
     return _ensure(tenant_id)["users"]
 
 
-def resolve_user_role(tenant_id: UUID, email: str) -> str | None:
+def resolve_user_role(tenant_id: UUID, email: str, password: str | None = None) -> str | None:
+    state = _ensure(tenant_id)
     normalized = email.strip().lower()
+    for auth_user in state.get("auth_directory", []):
+        if str(auth_user.get("email", "")).strip().lower() != normalized:
+            continue
+        if not bool(auth_user.get("active", True)):
+            return None
+        if password is not None and str(auth_user.get("password", "")) != password:
+            return None
+        return str(auth_user.get("role", "")).upper() or None
+
     for user in list_users(tenant_id):
         if str(user.get("email", "")).strip().lower() == normalized and bool(user.get("active", True)):
+            if password is not None:
+                return None
             return str(user.get("role", "")).upper() or None
     return None
 
