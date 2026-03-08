@@ -3,7 +3,18 @@ import './index.css'
 
 type UserRole = 'ADMIN' | 'SALES' | 'OPERATIONS' | 'FINANCE' | 'DELIVERY' | 'LEADERSHIP'
 type AdminModule = 'ORG' | 'USERS' | 'ACCESS' | 'GOVERNANCE'
-type FunctionModule = 'DASHBOARD' | 'PRICEBOOKS' | 'CATALOG' | 'RULES' | 'RATECARDS' | 'APPROVAL_POLICIES'
+type FunctionModule =
+  | 'DASHBOARD'
+  | 'ACCOUNTS'
+  | 'CONTACTS'
+  | 'OPPORTUNITIES'
+  | 'PIPELINE'
+  | 'PRICEBOOKS'
+  | 'CATALOG'
+  | 'RULES'
+  | 'RATECARDS'
+  | 'APPROVAL_POLICIES'
+type AdminSetupView = AdminModule | FunctionModule
 type EndUserModule = 'DASHBOARD' | 'QUOTE_CREATE' | 'REVISIONS' | 'APPROVALS' | 'OUTPUT'
 type ApprovalAction = 'APPROVE' | 'REJECT' | 'REQUEST_CHANGES'
 
@@ -62,6 +73,39 @@ type RevisionDiffRow = {
   change: 'ADDED' | 'REMOVED' | 'MODIFIED'
   before: string
   after: string
+}
+type CrmAccount = {
+  id: string
+  name: string
+  external_id: string
+  segment: string
+  industry?: string
+  website?: string
+  owner?: string
+  active?: boolean
+}
+type CrmContact = {
+  id: string
+  customer_id: string
+  name: string
+  email: string
+  phone?: string
+  title?: string
+  role?: string
+  status?: string
+  is_primary?: boolean
+}
+type CrmOpportunity = {
+  id: string
+  customer_id: string
+  record_type: 'LEAD' | 'OPPORTUNITY'
+  name: string
+  stage: string
+  amount: number
+  close_date?: string
+  probability_pct?: number
+  owner?: string
+  status?: string
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -138,6 +182,7 @@ function App() {
 
   const [adminModule, setAdminModule] = useState<AdminModule>('ORG')
   const [functionModule, setFunctionModule] = useState<FunctionModule>('DASHBOARD')
+  const [adminSetupView, setAdminSetupView] = useState<AdminSetupView>('ORG')
   const [endUserModule, setEndUserModule] = useState<EndUserModule>('DASHBOARD')
 
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([])
@@ -148,7 +193,14 @@ function App() {
   const [auditEvents, setAuditEvents] = useState<any[]>([])
   const [obsMetrics, setObsMetrics] = useState<any | null>(null)
 
-  const [quoteDraft, setQuoteDraft] = useState({ customer_external_id: '', currency: 'USD', region: 'US', price_book_id: '' })
+  const [quoteDraft, setQuoteDraft] = useState({
+    customer_external_id: '',
+    customer_account_id: '',
+    opportunity_id: '',
+    currency: 'USD',
+    region: 'US',
+    price_book_id: '',
+  })
   const [lineDraft, setLineDraft] = useState({ commercial_item_id: '', quantity: 1, discount_pct: 0 })
   const [guidedStep, setGuidedStep] = useState(1)
   const [guidedCustomerSearch, setGuidedCustomerSearch] = useState('')
@@ -258,6 +310,28 @@ function App() {
 
   const [quoteSearch, setQuoteSearch] = useState('')
   const [quoteStatusFilter, setQuoteStatusFilter] = useState('ALL')
+  const [crmAccounts, setCrmAccounts] = useState<CrmAccount[]>([])
+  const [crmContacts, setCrmContacts] = useState<CrmContact[]>([])
+  const [crmOpportunities, setCrmOpportunities] = useState<CrmOpportunity[]>([])
+  const [crmLifecycle, setCrmLifecycle] = useState<{ lead: string[]; opportunity: string[] }>({ lead: [], opportunity: [] })
+  const [crmPipeline, setCrmPipeline] = useState<any | null>(null)
+  const [accountSearch, setAccountSearch] = useState('')
+  const [contactSearch, setContactSearch] = useState('')
+  const [dealSearch, setDealSearch] = useState('')
+  const [dealTypeFilter, setDealTypeFilter] = useState<'ALL' | 'LEAD' | 'OPPORTUNITY'>('ALL')
+  const [accountDraft, setAccountDraft] = useState({ name: '', external_id: '', segment: 'SMB', industry: '', website: '', owner: '' })
+  const [contactDraft, setContactDraft] = useState({ customer_id: '', name: '', email: '', phone: '', title: '', role: 'STAKEHOLDER' })
+  const [dealDraft, setDealDraft] = useState({
+    customer_id: '',
+    record_type: 'LEAD',
+    name: '',
+    stage: 'NEW',
+    amount: 0,
+    close_date: '',
+    probability_pct: 20,
+    owner: '',
+    source: 'MANUAL',
+  })
   const [catalogSearch, setCatalogSearch] = useState('')
   const [catalogFilter, setCatalogFilter] = useState('ALL')
   const [favoriteItemIds, setFavoriteItemIds] = useState<string[]>([])
@@ -279,6 +353,7 @@ function App() {
   const permissionSet = useMemo(() => new Set(authProfile?.permissions || []), [authProfile?.permissions])
   const isAdmin = permissionSet.has('admin:manage')
   const canUseFunctionalSetup = isAdmin && (permissionSet.has('pricebook:write') || permissionSet.has('catalog:write'))
+  const canUseMiniCrm = permissionSet.has('quote:read') || permissionSet.has('quote:write') || permissionSet.has('dashboard:read')
   const workspaceTitle = isAdmin ? 'Admin Workspace' : 'Normal User Workspace'
   const workspaceSubtitle = isAdmin
     ? 'System setup and functional setup controls'
@@ -302,6 +377,33 @@ function App() {
       return statusOk && searchOk
     })
   }, [quotes, quoteSearch, quoteStatusFilter])
+
+  const filteredAccounts = useMemo(() => {
+    const q = accountSearch.trim().toLowerCase()
+    if (!q) return crmAccounts
+    return crmAccounts.filter((account) => {
+      const hay = `${account.name} ${account.external_id} ${account.segment} ${account.industry || ''}`.toLowerCase()
+      return hay.includes(q)
+    })
+  }, [crmAccounts, accountSearch])
+
+  const filteredContacts = useMemo(() => {
+    const q = contactSearch.trim().toLowerCase()
+    if (!q) return crmContacts
+    return crmContacts.filter((contact) => {
+      const hay = `${contact.name} ${contact.email} ${contact.title || ''}`.toLowerCase()
+      return hay.includes(q)
+    })
+  }, [crmContacts, contactSearch])
+
+  const filteredDeals = useMemo(() => {
+    const q = dealSearch.trim().toLowerCase()
+    return crmOpportunities.filter((deal) => {
+      const typeOk = dealTypeFilter === 'ALL' || deal.record_type === dealTypeFilter
+      const searchOk = q.length === 0 || `${deal.name} ${deal.stage}`.toLowerCase().includes(q)
+      return typeOk && searchOk
+    })
+  }, [crmOpportunities, dealSearch, dealTypeFilter])
 
   const currentQuote = useMemo(() => quotes.find((q) => q.id === currentQuoteId) || null, [quotes, currentQuoteId])
 
@@ -579,6 +681,130 @@ function App() {
     }
   }
 
+  async function loadMiniCrmData() {
+    if (!token || !canUseMiniCrm) return
+    try {
+      const [accounts, contacts, opportunities, lifecycle, pipeline] = await Promise.all([
+        request(`/api/guided-quotes/customers?search=${encodeURIComponent(accountSearch)}`),
+        request(`/api/guided-quotes/contacts?search=${encodeURIComponent(contactSearch)}`).catch(() => []),
+        request(`/api/guided-quotes/opportunities?search=${encodeURIComponent(dealSearch)}${dealTypeFilter === 'ALL' ? '' : `&record_type=${dealTypeFilter}`}`).catch(() => []),
+        request('/api/guided-quotes/lifecycle').catch(() => ({ lead: [], opportunity: [] })),
+        request('/api/guided-quotes/pipeline/summary').catch(() => null),
+      ])
+      setCrmAccounts(accounts)
+      setCrmContacts(contacts)
+      setCrmOpportunities(opportunities)
+      setCrmLifecycle(lifecycle)
+      setCrmPipeline(pipeline)
+      if (!contactDraft.customer_id && accounts.length > 0) {
+        setContactDraft((prev) => ({ ...prev, customer_id: accounts[0].id }))
+      }
+      if (!dealDraft.customer_id && accounts.length > 0) {
+        setDealDraft((prev) => ({ ...prev, customer_id: accounts[0].id }))
+      }
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  async function createAccount(e: FormEvent) {
+    e.preventDefault()
+    if (!accountDraft.name.trim()) return
+    try {
+      await request('/api/guided-quotes/customers', {
+        method: 'POST',
+        body: JSON.stringify(accountDraft),
+      })
+      setAccountDraft({ name: '', external_id: '', segment: 'SMB', industry: '', website: '', owner: '' })
+      setStatus('Account created')
+      await loadMiniCrmData()
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  async function deleteAccount(accountId: string) {
+    const ok = window.confirm('Delete this account and all linked contacts/deals?')
+    if (!ok) return
+    try {
+      await request(`/api/guided-quotes/customers/${accountId}`, { method: 'DELETE' })
+      setStatus('Account deleted')
+      await loadMiniCrmData()
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  async function createContactRecord(e: FormEvent) {
+    e.preventDefault()
+    if (!contactDraft.customer_id || !contactDraft.email.trim()) return
+    try {
+      await request('/api/guided-quotes/contacts', {
+        method: 'POST',
+        body: JSON.stringify(contactDraft),
+      })
+      setContactDraft((prev) => ({ ...prev, name: '', email: '', phone: '', title: '' }))
+      setStatus('Contact saved')
+      await loadMiniCrmData()
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  async function deleteContactRecord(contactId: string) {
+    try {
+      await request(`/api/guided-quotes/contacts/${contactId}`, { method: 'DELETE' })
+      setStatus('Contact deleted')
+      await loadMiniCrmData()
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  async function createDeal(e: FormEvent) {
+    e.preventDefault()
+    if (!dealDraft.customer_id || !dealDraft.name.trim()) return
+    try {
+      await request('/api/guided-quotes/opportunities', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...dealDraft,
+          amount: Number(dealDraft.amount || 0),
+          probability_pct: Number(dealDraft.probability_pct || 0),
+          close_date: dealDraft.close_date || null,
+        }),
+      })
+      setDealDraft((prev) => ({ ...prev, name: '', amount: 0, probability_pct: 20, close_date: '' }))
+      setStatus('Lead/Opportunity created')
+      await loadMiniCrmData()
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  async function moveDealStage(opportunityId: string, stage: string) {
+    try {
+      await request(`/api/guided-quotes/opportunities/${opportunityId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ stage }),
+      })
+      setStatus(`Deal moved to ${stage}`)
+      await loadMiniCrmData()
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
+  async function deleteDeal(opportunityId: string) {
+    try {
+      await request(`/api/guided-quotes/opportunities/${opportunityId}`, { method: 'DELETE' })
+      setStatus('Deal deleted')
+      await loadMiniCrmData()
+    } catch (error: any) {
+      setStatus(error.message)
+    }
+  }
+
   async function loadGuidedCustomers(search = '') {
     if (!token) return
     setGuidedCustomersLoading(true)
@@ -725,6 +951,8 @@ function App() {
       setQuoteDraft((prev) => ({
         ...prev,
         customer_external_id: quote.customer_external_id || guidedSelectedCustomerId,
+        customer_account_id: quote.customer_account_id || guidedSelectedCustomerId,
+        opportunity_id: quote.opportunity_id || guidedSelectedOpportunityId,
         price_book_id: quote.price_book_id,
         currency: quote.currency,
         region: quote.region || prev.region,
@@ -760,6 +988,10 @@ function App() {
   useEffect(() => {
     if (token && canUseFunctionalSetup) void loadFunctionData()
   }, [token, canUseFunctionalSetup, pricingConfig.price_book_id])
+
+  useEffect(() => {
+    if (token && canUseMiniCrm) void loadMiniCrmData()
+  }, [token, canUseMiniCrm, accountSearch, contactSearch, dealSearch, dealTypeFilter])
 
   useEffect(() => {
     if (!token || isAdmin || endUserModule !== 'QUOTE_CREATE') return
@@ -1434,6 +1666,52 @@ function App() {
     }
   }
 
+  const adminSetupSteps: Array<{ id: AdminSetupView; title: string; icon: string; hint: string }> = [
+    { id: 'ORG', title: 'Tenant Setup', icon: 'TS', hint: 'Define legal entity details, timezone, fiscal cycle, and branding defaults.' },
+    { id: 'USERS', title: 'Users & Roles', icon: 'UR', hint: 'Invite users and assign permission roles before policy rollout.' },
+    { id: 'ACCESS', title: 'Access Control', icon: 'AC', hint: 'Configure role-to-permission controls for secure operations.' },
+    { id: 'GOVERNANCE', title: 'Governance', icon: 'GV', hint: 'Monitor feature flags, usage health, and governance metrics.' },
+    { id: 'DASHBOARD', title: 'Control Tower', icon: 'CT', hint: 'Use a commercial operations cockpit for setup verification.' },
+    { id: 'ACCOUNTS', title: 'Accounts', icon: 'AM', hint: 'Create and manage customer accounts with ownership and segmentation.' },
+    { id: 'CONTACTS', title: 'Contacts', icon: 'CN', hint: 'Manage customer contacts and assign each to the right account.' },
+    { id: 'OPPORTUNITIES', title: 'Leads & Opportunities', icon: 'LO', hint: 'Track lead and opportunity records tied to customer accounts.' },
+    { id: 'PIPELINE', title: 'Pipeline & Reports', icon: 'PR', hint: 'Monitor stage flow, weighted pipeline, and conversion indicators.' },
+    { id: 'PRICEBOOKS', title: 'Pricing Simulator', icon: 'PS', hint: 'Create and test price books with simulated commercial outcomes.' },
+    { id: 'CATALOG', title: 'Catalog', icon: 'CG', hint: 'Define commercial items used by pricing and quoting workflows.' },
+    { id: 'RULES', title: 'Rules Builder', icon: 'RB', hint: 'Translate pricing and approval guardrails into executable rules.' },
+    { id: 'RATECARDS', title: 'Rate Cards', icon: 'RC', hint: 'Maintain labor rates by role, region, and delivery model.' },
+    { id: 'APPROVAL_POLICIES', title: 'Approval Policies', icon: 'AP', hint: 'Set escalation levels and margin/threshold policy checks.' },
+  ]
+
+  function openAdminSetupView(view: AdminSetupView) {
+    setAdminSetupView(view)
+    if (view === 'ORG' || view === 'USERS' || view === 'ACCESS' || view === 'GOVERNANCE') {
+      setAdminModule(view)
+      return
+    }
+    setFunctionModule(view)
+  }
+
+  function openFunctionSetup(module: FunctionModule) {
+    if (isAdmin) {
+      openAdminSetupView(module)
+      return
+    }
+    setFunctionModule(module)
+  }
+
+  const activeSetupStep = adminSetupSteps.find((step) => step.id === adminSetupView) || adminSetupSteps[0]
+  const showFnDashboard = canUseFunctionalSetup && ((!isAdmin && functionModule === 'DASHBOARD') || (isAdmin && adminSetupView === 'DASHBOARD'))
+  const showFnAccounts = canUseMiniCrm && ((!isAdmin && functionModule === 'ACCOUNTS') || (isAdmin && adminSetupView === 'ACCOUNTS'))
+  const showFnContacts = canUseMiniCrm && ((!isAdmin && functionModule === 'CONTACTS') || (isAdmin && adminSetupView === 'CONTACTS'))
+  const showFnOpportunities = canUseMiniCrm && ((!isAdmin && functionModule === 'OPPORTUNITIES') || (isAdmin && adminSetupView === 'OPPORTUNITIES'))
+  const showFnPipeline = canUseMiniCrm && ((!isAdmin && functionModule === 'PIPELINE') || (isAdmin && adminSetupView === 'PIPELINE'))
+  const showFnPriceBooks = canUseFunctionalSetup && ((!isAdmin && functionModule === 'PRICEBOOKS') || (isAdmin && adminSetupView === 'PRICEBOOKS'))
+  const showFnCatalog = canUseFunctionalSetup && ((!isAdmin && functionModule === 'CATALOG') || (isAdmin && adminSetupView === 'CATALOG'))
+  const showFnRules = canUseFunctionalSetup && ((!isAdmin && functionModule === 'RULES') || (isAdmin && adminSetupView === 'RULES'))
+  const showFnRateCards = canUseFunctionalSetup && ((!isAdmin && functionModule === 'RATECARDS') || (isAdmin && adminSetupView === 'RATECARDS'))
+  const showFnApprovalPolicies = canUseFunctionalSetup && ((!isAdmin && functionModule === 'APPROVAL_POLICIES') || (isAdmin && adminSetupView === 'APPROVAL_POLICIES'))
+
   if (!token) {
     return (
       <div className="login-shell">
@@ -1482,16 +1760,47 @@ function App() {
         </div>
       </header>
 
-      <section className="module-tabs">
-        {isAdmin && (
+      {isAdmin ? (
+        <section className="setup-shell">
+          <div className="setup-head">
+            <p className="eyebrow">Guided Admin Setup</p>
+            <h2>{activeSetupStep.title}</h2>
+            <p>{activeSetupStep.hint}</p>
+          </div>
+          <div className="setup-tabs" role="tablist" aria-label="Admin setup flow">
+            {adminSetupSteps
+              .filter((step) => {
+                const adminCore = ['ORG', 'USERS', 'ACCESS', 'GOVERNANCE'].includes(step.id)
+                const crmCore = ['ACCOUNTS', 'CONTACTS', 'OPPORTUNITIES', 'PIPELINE'].includes(step.id)
+                if (adminCore) return true
+                if (crmCore) return canUseMiniCrm
+                return canUseFunctionalSetup
+              })
+              .map((step, index) => (
+                <button
+                  key={step.id}
+                  className={adminSetupView === step.id ? 'active' : ''}
+                  onClick={() => openAdminSetupView(step.id)}
+                  title={step.hint}
+                  aria-label={`${index + 1}. ${step.title}. ${step.hint}`}
+                >
+                  <span className="setup-icon" aria-hidden="true">{step.icon}</span>
+                  <span>{index + 1}. {step.title}</span>
+                </button>
+              ))}
+          </div>
+        </section>
+      ) : (
+        <section className="module-tabs">
+          {canUseMiniCrm && (
           <>
-            <button className={adminModule === 'ORG' ? 'active' : ''} onClick={() => setAdminModule('ORG')}>Tenant Setup</button>
-            <button className={adminModule === 'USERS' ? 'active' : ''} onClick={() => setAdminModule('USERS')}>Users & Roles</button>
-            <button className={adminModule === 'ACCESS' ? 'active' : ''} onClick={() => setAdminModule('ACCESS')}>Access Control</button>
-            <button className={adminModule === 'GOVERNANCE' ? 'active' : ''} onClick={() => setAdminModule('GOVERNANCE')}>Governance</button>
+            <button className={functionModule === 'ACCOUNTS' ? 'active' : ''} onClick={() => setFunctionModule('ACCOUNTS')}>Accounts</button>
+            <button className={functionModule === 'CONTACTS' ? 'active' : ''} onClick={() => setFunctionModule('CONTACTS')}>Contacts</button>
+            <button className={functionModule === 'OPPORTUNITIES' ? 'active' : ''} onClick={() => setFunctionModule('OPPORTUNITIES')}>Leads & Opportunities</button>
+            <button className={functionModule === 'PIPELINE' ? 'active' : ''} onClick={() => setFunctionModule('PIPELINE')}>Pipeline</button>
           </>
-        )}
-        {canUseFunctionalSetup && (
+          )}
+          {canUseFunctionalSetup && (
           <>
             <button className={functionModule === 'DASHBOARD' ? 'active' : ''} onClick={() => setFunctionModule('DASHBOARD')}>Control Tower</button>
             <button className={functionModule === 'PRICEBOOKS' ? 'active' : ''} onClick={() => setFunctionModule('PRICEBOOKS')}>Pricing Simulator</button>
@@ -1509,41 +1818,79 @@ function App() {
             <button className={endUserModule === 'APPROVALS' ? 'active' : ''} onClick={() => setEndUserModule('APPROVALS')}>Approvals</button>
             <button className={endUserModule === 'OUTPUT' ? 'active' : ''} onClick={() => setEndUserModule('OUTPUT')}>Output & Sharing</button>
           </>
-        )}
-      </section>
+          )}
+        </section>
+      )}
 
-      {isAdmin && adminModule === 'ORG' && (
+      {isAdmin && adminSetupView === 'ORG' && adminModule === 'ORG' && (
         <main className="workspace-grid two-col page-admin-org">
           <section className="card-panel">
-            <h2>Organization Profile</h2>
+            <h2><span className="title-icon" aria-hidden="true">TS</span>Organization Profile</h2>
             <div className="stack">
-              <input value={orgSettings.name} onChange={(e) => setOrgSettings({ ...orgSettings, name: e.target.value })} placeholder="Organization name" />
+              <label>
+                Organization Name
+                <input
+                  value={orgSettings.name}
+                  onChange={(e) => setOrgSettings({ ...orgSettings, name: e.target.value })}
+                  placeholder="Default Organization"
+                  title="Official name used in policy and quote templates."
+                />
+                <small className="field-hint">Use your legal or primary commercial entity name.</small>
+              </label>
               <div className="inline-fields">
-                <input value={orgSettings.region} onChange={(e) => setOrgSettings({ ...orgSettings, region: e.target.value })} placeholder="Region" />
-                <input value={orgSettings.timezone} onChange={(e) => setOrgSettings({ ...orgSettings, timezone: e.target.value })} placeholder="Timezone" />
+                <label>
+                  Region
+                  <input value={orgSettings.region} onChange={(e) => setOrgSettings({ ...orgSettings, region: e.target.value })} placeholder="US" title="Primary operating region code." />
+                  <small className="field-hint">Use a short geo code like `US`, `EU`, or `APAC`.</small>
+                </label>
+                <label>
+                  Timezone
+                  <input value={orgSettings.timezone} onChange={(e) => setOrgSettings({ ...orgSettings, timezone: e.target.value })} placeholder="America/New_York" title="Default timezone used for policies and approvals." />
+                  <small className="field-hint">Use an IANA timezone format, for example `America/New_York`.</small>
+                </label>
               </div>
               <div className="inline-fields">
-                <input value={orgSettings.default_currency} onChange={(e) => setOrgSettings({ ...orgSettings, default_currency: e.target.value })} placeholder="Default currency" />
-                <input type="date" value={orgSettings.fiscal_year_start} onChange={(e) => setOrgSettings({ ...orgSettings, fiscal_year_start: e.target.value })} />
+                <label>
+                  Default Currency
+                  <input value={orgSettings.default_currency} onChange={(e) => setOrgSettings({ ...orgSettings, default_currency: e.target.value })} placeholder="USD" title="Default quote and pricing currency." />
+                  <small className="field-hint">Use an ISO currency code like `USD` or `EUR`.</small>
+                </label>
+                <label>
+                  Fiscal Year Start
+                  <input type="date" value={orgSettings.fiscal_year_start} onChange={(e) => setOrgSettings({ ...orgSettings, fiscal_year_start: e.target.value })} title="Start date for fiscal and policy reporting periods." />
+                  <small className="field-hint">Pick the first date of your financial year.</small>
+                </label>
               </div>
-              <select value={orgSettings.tax_behavior} onChange={(e) => setOrgSettings({ ...orgSettings, tax_behavior: e.target.value })}>
-                <option value="DISPLAY_ONLY">DISPLAY_ONLY</option>
-                <option value="CALCULATED">CALCULATED</option>
-              </select>
+              <label>
+                Tax Behavior
+                <select value={orgSettings.tax_behavior} onChange={(e) => setOrgSettings({ ...orgSettings, tax_behavior: e.target.value })} title="Choose whether tax is calculated by the engine or display-only.">
+                  <option value="DISPLAY_ONLY">DISPLAY_ONLY</option>
+                  <option value="CALCULATED">CALCULATED</option>
+                </select>
+                <small className="field-hint">`CALCULATED` applies computed tax. `DISPLAY_ONLY` keeps tax informational.</small>
+              </label>
             </div>
           </section>
           <section className="card-panel">
-            <h2>Branding & Financial Controls</h2>
+            <h2><span className="title-icon" aria-hidden="true">BR</span>Branding & Financial Controls</h2>
             <div className="stack">
-              <input value={orgSettings.logo_url} onChange={(e) => setOrgSettings({ ...orgSettings, logo_url: e.target.value })} placeholder="Logo URL" />
-              <input value={orgSettings.primary_color} onChange={(e) => setOrgSettings({ ...orgSettings, primary_color: e.target.value })} placeholder="Primary color" />
-              <button onClick={saveOrgSettings}>Save Organization Settings</button>
+              <label>
+                Logo URL
+                <input value={orgSettings.logo_url} onChange={(e) => setOrgSettings({ ...orgSettings, logo_url: e.target.value })} placeholder="https://cdn.example.com/logo.svg" title="Public URL for organization logo in documents and UI." />
+                <small className="field-hint">Use an HTTPS URL to an image asset (`.svg`, `.png`, or `.jpg`).</small>
+              </label>
+              <label>
+                Primary Color
+                <input value={orgSettings.primary_color} onChange={(e) => setOrgSettings({ ...orgSettings, primary_color: e.target.value })} placeholder="#0f8f7a" title="Primary brand accent used across admin workspace UI." />
+                <small className="field-hint">Use a HEX value like `#0f8f7a` for consistent branding.</small>
+              </label>
+              <button onClick={saveOrgSettings} title="Save and apply tenant setup values.">Save Organization Settings</button>
             </div>
           </section>
         </main>
       )}
 
-      {isAdmin && adminModule === 'USERS' && (
+      {isAdmin && adminSetupView === 'USERS' && adminModule === 'USERS' && (
         <main className="workspace-grid two-col page-admin-users">
           <section className="card-panel">
             <h2>Invite User</h2>
@@ -1581,7 +1928,7 @@ function App() {
         </main>
       )}
 
-      {isAdmin && adminModule === 'ACCESS' && (
+      {isAdmin && adminSetupView === 'ACCESS' && adminModule === 'ACCESS' && (
         <main className="workspace-grid one-col page-admin-access">
           <section className="card-panel">
             <h2>Role Permission Matrix</h2>
@@ -1602,7 +1949,7 @@ function App() {
         </main>
       )}
 
-      {isAdmin && adminModule === 'GOVERNANCE' && (
+      {isAdmin && adminSetupView === 'GOVERNANCE' && adminModule === 'GOVERNANCE' && (
         <main className="workspace-grid two-col page-admin-governance">
           <section className="card-panel">
             <h2>Tenant Governance Snapshot</h2>
@@ -1631,7 +1978,7 @@ function App() {
         </main>
       )}
 
-      {canUseFunctionalSetup && functionModule === 'DASHBOARD' && (
+      {showFnDashboard && (
         <main className="workspace-grid one-col function-admin-dashboard page-fn-dashboard">
           <section className="card-panel function-hero">
             <div>
@@ -1655,7 +2002,7 @@ function App() {
               <div className="section-head">
                 <h3>Price Books</h3>
                 <div className="inline-actions">
-                  <button className="secondary" onClick={() => setFunctionModule('PRICEBOOKS')}>Open Pricing Studio</button>
+                  <button className="secondary" onClick={() => openFunctionSetup('PRICEBOOKS')} title="Open price book setup workspace.">Open Pricing Studio</button>
                 </div>
               </div>
               <form className="inline-fields" onSubmit={createAndPublishPriceBook}>
@@ -1720,7 +2067,7 @@ function App() {
                               className="secondary"
                               onClick={() => {
                                 setPricingConfig((prev) => ({ ...prev, price_book_id: book.id, currency: book.currency }))
-                                setFunctionModule('PRICEBOOKS')
+                                openFunctionSetup('PRICEBOOKS')
                               }}
                             >
                               View
@@ -1751,8 +2098,8 @@ function App() {
               <div className="section-head">
                 <h3>Rules & Approval Policies</h3>
                 <div className="inline-actions">
-                  <button className="secondary" onClick={() => setFunctionModule('RULES')}>Rules Builder</button>
-                  <button className="secondary" onClick={() => setFunctionModule('APPROVAL_POLICIES')}>Policies</button>
+                  <button className="secondary" onClick={() => openFunctionSetup('RULES')} title="Open rules setup workspace.">Rules Builder</button>
+                  <button className="secondary" onClick={() => openFunctionSetup('APPROVAL_POLICIES')} title="Open approval policy setup workspace.">Policies</button>
                 </div>
               </div>
               <div className="split-half">
@@ -1843,7 +2190,206 @@ function App() {
         </main>
       )}
 
-      {canUseFunctionalSetup && functionModule === 'PRICEBOOKS' && (
+      {showFnAccounts && (
+        <main className="workspace-grid two-col page-fn-accounts">
+          <section className="card-panel">
+            <h2>Account Management</h2>
+            <form className="stack" onSubmit={createAccount}>
+              <input value={accountDraft.name} onChange={(e) => setAccountDraft({ ...accountDraft, name: e.target.value })} placeholder="Account name (required)" required />
+              <div className="inline-fields">
+                <input value={accountDraft.external_id} onChange={(e) => setAccountDraft({ ...accountDraft, external_id: e.target.value })} placeholder="External ID (optional)" />
+                <input value={accountDraft.segment} onChange={(e) => setAccountDraft({ ...accountDraft, segment: e.target.value })} placeholder="Segment (SMB / Mid-Market / Enterprise)" />
+              </div>
+              <div className="inline-fields">
+                <input value={accountDraft.industry} onChange={(e) => setAccountDraft({ ...accountDraft, industry: e.target.value })} placeholder="Industry (Healthcare, Finance...)" />
+                <input value={accountDraft.owner} onChange={(e) => setAccountDraft({ ...accountDraft, owner: e.target.value })} placeholder="Account owner" />
+              </div>
+              <input value={accountDraft.website} onChange={(e) => setAccountDraft({ ...accountDraft, website: e.target.value })} placeholder="Website URL" />
+              <button type="submit">Create Account</button>
+            </form>
+          </section>
+          <section className="card-panel">
+            <h2>Account Listing & Search</h2>
+            <input value={accountSearch} onChange={(e) => setAccountSearch(e.target.value)} placeholder="Search by account name, external id, segment or industry" />
+            <ul>
+              {filteredAccounts.map((account) => (
+                <li key={account.id} className="list-row">
+                  <span>{account.name} | {account.external_id} | {account.segment}</span>
+                  <div className="inline-actions">
+                    <button className="secondary" onClick={() => setContactDraft((prev) => ({ ...prev, customer_id: account.id }))}>Add Contact</button>
+                    <button className="secondary" onClick={() => setDealDraft((prev) => ({ ...prev, customer_id: account.id }))}>Add Deal</button>
+                    <button className="secondary" onClick={() => void deleteAccount(account.id)}>Delete</button>
+                  </div>
+                </li>
+              ))}
+              {filteredAccounts.length === 0 && <li className="list-row"><span>No accounts found.</span></li>}
+            </ul>
+          </section>
+        </main>
+      )}
+
+      {showFnContacts && (
+        <main className="workspace-grid two-col page-fn-contacts">
+          <section className="card-panel">
+            <h2>Contact Management</h2>
+            <form className="stack" onSubmit={createContactRecord}>
+              <select value={contactDraft.customer_id} onChange={(e) => setContactDraft({ ...contactDraft, customer_id: e.target.value })} required>
+                <option value="">Assign to Account</option>
+                {crmAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+              </select>
+              <div className="inline-fields">
+                <input value={contactDraft.name} onChange={(e) => setContactDraft({ ...contactDraft, name: e.target.value })} placeholder="Contact name" required />
+                <input type="email" value={contactDraft.email} onChange={(e) => setContactDraft({ ...contactDraft, email: e.target.value })} placeholder="Email (required)" required />
+              </div>
+              <div className="inline-fields">
+                <input value={contactDraft.phone} onChange={(e) => setContactDraft({ ...contactDraft, phone: e.target.value })} placeholder="Phone" />
+                <input value={contactDraft.title} onChange={(e) => setContactDraft({ ...contactDraft, title: e.target.value })} placeholder="Title" />
+              </div>
+              <input value={contactDraft.role} onChange={(e) => setContactDraft({ ...contactDraft, role: e.target.value })} placeholder="Role (Decision Maker / Finance / Legal...)" />
+              <button type="submit">Save Contact</button>
+            </form>
+          </section>
+          <section className="card-panel">
+            <h2>Contacts Listing & Search</h2>
+            <input value={contactSearch} onChange={(e) => setContactSearch(e.target.value)} placeholder="Search by contact name, email, or title" />
+            <ul>
+              {filteredContacts.map((contact) => (
+                <li key={contact.id} className="list-row">
+                  <span>
+                    {contact.name} | {contact.email} | {(crmAccounts.find((account) => account.id === contact.customer_id)?.name) || 'Unknown Account'}
+                  </span>
+                  <button className="secondary" onClick={() => void deleteContactRecord(contact.id)}>Delete</button>
+                </li>
+              ))}
+              {filteredContacts.length === 0 && <li className="list-row"><span>No contacts found.</span></li>}
+            </ul>
+          </section>
+        </main>
+      )}
+
+      {showFnOpportunities && (
+        <main className="workspace-grid two-col page-fn-opportunities">
+          <section className="card-panel">
+            <h2>Lead / Opportunity Management</h2>
+            <form className="stack" onSubmit={createDeal}>
+              <select value={dealDraft.customer_id} onChange={(e) => setDealDraft({ ...dealDraft, customer_id: e.target.value })} required>
+                <option value="">Assign to Account</option>
+                {crmAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+              </select>
+              <div className="inline-fields">
+                <select
+                  value={dealDraft.record_type}
+                  onChange={(e) => {
+                    const recordType = e.target.value as 'LEAD' | 'OPPORTUNITY'
+                    const nextStages = recordType === 'LEAD' ? crmLifecycle.lead : crmLifecycle.opportunity
+                    setDealDraft({ ...dealDraft, record_type: recordType, stage: nextStages[0] || 'NEW' })
+                  }}
+                >
+                  <option value="LEAD">LEAD</option>
+                  <option value="OPPORTUNITY">OPPORTUNITY</option>
+                </select>
+                <select value={dealDraft.stage} onChange={(e) => setDealDraft({ ...dealDraft, stage: e.target.value })}>
+                  {(dealDraft.record_type === 'LEAD' ? crmLifecycle.lead : crmLifecycle.opportunity).map((stage) => (
+                    <option key={stage} value={stage}>{stage}</option>
+                  ))}
+                </select>
+              </div>
+              <input value={dealDraft.name} onChange={(e) => setDealDraft({ ...dealDraft, name: e.target.value })} placeholder="Lead / Opportunity name" required />
+              <div className="inline-fields">
+                <input type="number" value={dealDraft.amount} onChange={(e) => setDealDraft({ ...dealDraft, amount: Number(e.target.value) })} placeholder="Deal amount" />
+                <input type="number" value={dealDraft.probability_pct} onChange={(e) => setDealDraft({ ...dealDraft, probability_pct: Number(e.target.value) })} placeholder="Probability %" />
+              </div>
+              <div className="inline-fields">
+                <input type="date" value={dealDraft.close_date} onChange={(e) => setDealDraft({ ...dealDraft, close_date: e.target.value })} />
+                <input value={dealDraft.owner} onChange={(e) => setDealDraft({ ...dealDraft, owner: e.target.value })} placeholder="Owner" />
+              </div>
+              <button type="submit">Save Lead / Opportunity</button>
+            </form>
+          </section>
+          <section className="card-panel">
+            <h2>Lifecycle Board</h2>
+            <div className="inline-fields">
+              <input value={dealSearch} onChange={(e) => setDealSearch(e.target.value)} placeholder="Search deal name or stage" />
+              <select value={dealTypeFilter} onChange={(e) => setDealTypeFilter(e.target.value as 'ALL' | 'LEAD' | 'OPPORTUNITY')}>
+                <option value="ALL">ALL</option>
+                <option value="LEAD">LEAD</option>
+                <option value="OPPORTUNITY">OPPORTUNITY</option>
+              </select>
+            </div>
+            <ul>
+              {filteredDeals.map((deal) => {
+                const stageOptions = deal.record_type === 'LEAD' ? crmLifecycle.lead : crmLifecycle.opportunity
+                return (
+                  <li key={deal.id} className="list-row">
+                    <span>
+                      {deal.record_type} | {deal.name} | {(crmAccounts.find((account) => account.id === deal.customer_id)?.name) || 'Unknown Account'} | ${Number(deal.amount || 0).toLocaleString()}
+                    </span>
+                    <div className="inline-actions">
+                      <select value={deal.stage} onChange={(e) => { void moveDealStage(deal.id, e.target.value) }}>
+                        {stageOptions.map((stage) => <option key={stage} value={stage}>{stage}</option>)}
+                      </select>
+                      <button
+                        className="secondary"
+                        onClick={() => {
+                          setGuidedSelectedOpportunityId(deal.id)
+                          setGuidedSelectedCustomerId(deal.customer_id)
+                          setQuoteDraft((prev) => ({
+                            ...prev,
+                            customer_external_id: deal.customer_id,
+                            customer_account_id: deal.customer_id,
+                            opportunity_id: deal.id,
+                          }))
+                          setStatus(`Opportunity linked for next quote: ${deal.name}`)
+                        }}
+                      >
+                        Use in Quote
+                      </button>
+                      <button className="secondary" onClick={() => void deleteDeal(deal.id)}>Delete</button>
+                    </div>
+                  </li>
+                )
+              })}
+              {filteredDeals.length === 0 && <li className="list-row"><span>No leads/opportunities found.</span></li>}
+            </ul>
+          </section>
+        </main>
+      )}
+
+      {showFnPipeline && (
+        <main className="workspace-grid one-col page-fn-pipeline">
+          <section className="card-panel">
+            <h2>Sales Pipeline Dashboard & Reports</h2>
+            <div className="kpi-strip">
+              <div><strong>Accounts</strong><span>{crmPipeline?.accounts_total ?? crmAccounts.length}</span></div>
+              <div><strong>Contacts</strong><span>{crmPipeline?.contacts_total ?? crmContacts.length}</span></div>
+              <div><strong>Open Deals</strong><span>{crmPipeline?.open_deals ?? 0}</span></div>
+              <div><strong>Win Rate</strong><span>{Number(crmPipeline?.win_rate_pct ?? 0).toFixed(2)}%</span></div>
+            </div>
+            <div className="kpi-strip">
+              <div><strong>Total Pipeline</strong><span>${Number(crmPipeline?.total_pipeline_amount ?? 0).toLocaleString()}</span></div>
+              <div><strong>Weighted Pipeline</strong><span>${Number(crmPipeline?.weighted_pipeline_amount ?? 0).toLocaleString()}</span></div>
+              <div><strong>Leads</strong><span>{crmPipeline?.by_record_type?.LEAD ?? 0}</span></div>
+              <div><strong>Opportunities</strong><span>{crmPipeline?.by_record_type?.OPPORTUNITY ?? 0}</span></div>
+            </div>
+            <h3>Stage Distribution</h3>
+            <ul>
+              {Object.entries(crmPipeline?.by_stage || {}).map(([stage, count]) => (
+                <li key={stage} className="list-row"><span>{stage}</span><strong>{String(count)}</strong></li>
+              ))}
+              {Object.keys(crmPipeline?.by_stage || {}).length === 0 && <li className="list-row"><span>No stage data available yet.</span></li>}
+            </ul>
+            <h3>Top Accounts by Pipeline Value</h3>
+            <ul>
+              {(crmPipeline?.top_accounts || []).map((item: any) => (
+                <li key={item.account_name} className="list-row"><span>{item.account_name}</span><strong>${Number(item.amount || 0).toLocaleString()}</strong></li>
+              ))}
+              {(crmPipeline?.top_accounts || []).length === 0 && <li className="list-row"><span>No account report data available yet.</span></li>}
+            </ul>
+          </section>
+        </main>
+      )}
+
+      {showFnPriceBooks && (
         <main className="workspace-grid two-col page-fn-pricebooks">
           <section className="card-panel">
             <h2>Price Book Management</h2>
@@ -1905,7 +2451,7 @@ function App() {
         </main>
       )}
 
-      {canUseFunctionalSetup && functionModule === 'CATALOG' && (
+      {showFnCatalog && (
         <main className="workspace-grid two-col page-fn-catalog">
           <section className="card-panel">
             <h2>Commercial Item Management</h2>
@@ -1938,7 +2484,7 @@ function App() {
         </main>
       )}
 
-      {canUseFunctionalSetup && functionModule === 'RULES' && (
+      {showFnRules && (
         <main className="workspace-grid two-col page-fn-rules">
           <section className="card-panel">
             <h2>Human-readable Rule Builder</h2>
@@ -1977,7 +2523,7 @@ function App() {
         </main>
       )}
 
-      {canUseFunctionalSetup && functionModule === 'RATECARDS' && (
+      {showFnRateCards && (
         <main className="workspace-grid two-col page-fn-ratecards">
           <section className="card-panel">
             <h2>Labor Rate Card</h2>
@@ -2011,7 +2557,7 @@ function App() {
         </main>
       )}
 
-      {canUseFunctionalSetup && functionModule === 'APPROVAL_POLICIES' && (
+      {showFnApprovalPolicies && (
         <main className="workspace-grid two-col page-fn-approval-policies">
           <section className="card-panel">
             <h2>Approval Policy Definition</h2>

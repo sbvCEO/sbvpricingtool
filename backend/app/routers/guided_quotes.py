@@ -5,18 +5,26 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.admin_store import (
+    create_contact,
     create_customer,
     create_opportunity,
+    delete_contact,
+    delete_customer,
+    delete_opportunity,
+    get_contact,
+    get_customer,
+    get_lifecycle_config,
+    get_opportunity,
+    get_pipeline_summary,
+    list_contacts,
     list_customers,
     list_opportunities,
+    update_contact,
+    update_customer,
+    update_opportunity,
 )
 from app.pricing import price_quote
-from app.quote_generation_engine import (
-    QuoteComputationEngine,
-    QuoteGeneralInput,
-    QuoteLineInput,
-    StorePriceBookResolver,
-)
+from app.quote_generation_engine import QuoteComputationEngine, QuoteGeneralInput, QuoteLineInput, StorePriceBookResolver
 from app.rbac import require_permission
 from app.schemas import AuthContext, QuoteRead
 from app.store import quote_store
@@ -28,14 +36,71 @@ class CustomerCreatePayload(BaseModel):
     name: str
     external_id: str | None = None
     segment: str = "UNSPECIFIED"
+    industry: str = "UNSPECIFIED"
+    website: str = ""
+    owner: str = ""
+    notes: str = ""
+
+
+class CustomerUpdatePayload(BaseModel):
+    name: str | None = None
+    external_id: str | None = None
+    segment: str | None = None
+    industry: str | None = None
+    website: str | None = None
+    owner: str | None = None
+    notes: str | None = None
+    active: bool | None = None
+
+
+class ContactCreatePayload(BaseModel):
+    customer_id: str
+    name: str
+    email: str
+    phone: str = ""
+    title: str = ""
+    role: str = "STAKEHOLDER"
+    status: str = "ACTIVE"
+    is_primary: bool = False
+
+
+class ContactUpdatePayload(BaseModel):
+    customer_id: str | None = None
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    title: str | None = None
+    role: str | None = None
+    status: str | None = None
+    is_primary: bool | None = None
 
 
 class OpportunityCreatePayload(BaseModel):
     customer_id: str
     name: str
-    stage: str = "QUALIFICATION"
+    record_type: str = "OPPORTUNITY"
+    stage: str = "NEW"
     amount: float = 0.0
     close_date: str | None = None
+    probability_pct: float = 20.0
+    owner: str = ""
+    source: str = "MANUAL"
+    status: str = "OPEN"
+    notes: str = ""
+
+
+class OpportunityUpdatePayload(BaseModel):
+    customer_id: str | None = None
+    record_type: str | None = None
+    name: str | None = None
+    stage: str | None = None
+    amount: float | None = None
+    close_date: str | None = None
+    probability_pct: float | None = None
+    owner: str | None = None
+    source: str | None = None
+    status: str | None = None
+    notes: str | None = None
 
 
 class GuidedGeneralPayload(BaseModel):
@@ -62,6 +127,20 @@ class GuidedQuoteGeneratePayload(BaseModel):
     line_items: list[GuidedLinePayload] = Field(default_factory=list)
 
 
+@router.get("/lifecycle")
+def get_lifecycle(
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:read"))],
+):
+    return get_lifecycle_config()
+
+
+@router.get("/pipeline/summary")
+def get_pipeline(
+    ctx: Annotated[AuthContext, Depends(require_permission("dashboard:read"))],
+):
+    return get_pipeline_summary(ctx.tenant_id)
+
+
 @router.get("/customers")
 def get_customers(
     ctx: Annotated[AuthContext, Depends(require_permission("quote:read"))],
@@ -70,12 +149,107 @@ def get_customers(
     return list_customers(ctx.tenant_id, search)
 
 
+@router.get("/customers/{customer_id}")
+def get_customer_by_id(
+    customer_id: str,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:read"))],
+):
+    try:
+        return get_customer(ctx.tenant_id, customer_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/customers", status_code=status.HTTP_201_CREATED)
 def post_customer(
     payload: CustomerCreatePayload,
     ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
 ):
-    return create_customer(ctx.tenant_id, payload.model_dump())
+    try:
+        return create_customer(ctx.tenant_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/customers/{customer_id}")
+def patch_customer(
+    customer_id: str,
+    payload: CustomerUpdatePayload,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
+):
+    try:
+        return update_customer(ctx.tenant_id, customer_id, payload.model_dump(exclude_unset=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/customers/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_customer(
+    customer_id: str,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
+):
+    try:
+        delete_customer(ctx.tenant_id, customer_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/contacts")
+def get_contacts(
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:read"))],
+    customer_id: Annotated[str | None, Query()] = None,
+    search: Annotated[str, Query()] = "",
+):
+    return list_contacts(ctx.tenant_id, customer_id=customer_id, search=search)
+
+
+@router.get("/contacts/{contact_id}")
+def get_contact_by_id(
+    contact_id: str,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:read"))],
+):
+    try:
+        return get_contact(ctx.tenant_id, contact_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/contacts", status_code=status.HTTP_201_CREATED)
+def post_contact(
+    payload: ContactCreatePayload,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
+):
+    try:
+        return create_contact(ctx.tenant_id, payload.model_dump())
+    except (KeyError, ValueError) as exc:
+        status_code = 404 if isinstance(exc, KeyError) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.patch("/contacts/{contact_id}")
+def patch_contact(
+    contact_id: str,
+    payload: ContactUpdatePayload,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
+):
+    try:
+        return update_contact(ctx.tenant_id, contact_id, payload.model_dump(exclude_unset=True))
+    except (KeyError, ValueError) as exc:
+        status_code = 404 if isinstance(exc, KeyError) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_contact(
+    contact_id: str,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
+):
+    try:
+        delete_contact(ctx.tenant_id, contact_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/opportunities")
@@ -83,8 +257,20 @@ def get_opportunities(
     ctx: Annotated[AuthContext, Depends(require_permission("quote:read"))],
     customer_id: Annotated[str | None, Query()] = None,
     search: Annotated[str, Query()] = "",
+    record_type: Annotated[str | None, Query()] = None,
 ):
-    return list_opportunities(ctx.tenant_id, customer_id=customer_id, search=search)
+    return list_opportunities(ctx.tenant_id, customer_id=customer_id, search=search, record_type=record_type)
+
+
+@router.get("/opportunities/{opportunity_id}")
+def get_opportunity_by_id(
+    opportunity_id: str,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:read"))],
+):
+    try:
+        return get_opportunity(ctx.tenant_id, opportunity_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/opportunities", status_code=status.HTTP_201_CREATED)
@@ -92,7 +278,35 @@ def post_opportunity(
     payload: OpportunityCreatePayload,
     ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
 ):
-    return create_opportunity(ctx.tenant_id, payload.model_dump())
+    try:
+        return create_opportunity(ctx.tenant_id, payload.model_dump())
+    except (KeyError, ValueError) as exc:
+        status_code = 404 if isinstance(exc, KeyError) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.patch("/opportunities/{opportunity_id}")
+def patch_opportunity(
+    opportunity_id: str,
+    payload: OpportunityUpdatePayload,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
+):
+    try:
+        return update_opportunity(ctx.tenant_id, opportunity_id, payload.model_dump(exclude_unset=True))
+    except (KeyError, ValueError) as exc:
+        status_code = 404 if isinstance(exc, KeyError) else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.delete("/opportunities/{opportunity_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_opportunity(
+    opportunity_id: str,
+    ctx: Annotated[AuthContext, Depends(require_permission("quote:write"))],
+):
+    try:
+        delete_opportunity(ctx.tenant_id, opportunity_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/customers/{customer_id}/quotes", response_model=list[QuoteRead])
@@ -103,7 +317,7 @@ def get_quotes_for_customer(
     quotes = [
         quote
         for quote in quote_store.list_quotes(ctx.tenant_id)
-        if str(quote.get("customer_external_id") or "") == customer_id
+        if str(quote.get("customer_external_id") or quote.get("customer_account_id") or "") == customer_id
     ]
     return [QuoteRead(**quote) for quote in quotes]
 
@@ -162,6 +376,8 @@ def generate_guided_quote(
         ctx.tenant_id,
         {
             "customer_external_id": payload.customer_id,
+            "customer_account_id": payload.customer_id,
+            "opportunity_id": payload.opportunity_id,
             "currency": payload.general.currency,
             "region": payload.general.region,
             "price_book_id": payload.general.price_book_id,

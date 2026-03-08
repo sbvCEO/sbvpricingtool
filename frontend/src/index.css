@@ -213,6 +213,72 @@ button:disabled { opacity: 0.7; cursor: not-allowed; }
   border-color: var(--brand);
 }
 
+.setup-shell {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem;
+  background: #fff;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.setup-head {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.setup-head h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.setup-head p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.setup-tabs {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.setup-tabs button {
+  background: #f7fafb;
+  color: var(--ink);
+  border-color: var(--line);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.setup-tabs button.active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+
+.setup-icon {
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--panel) 86%, #e7f2ef 14%);
+  font-size: 0.73rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.setup-tabs button.active .setup-icon {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: color-mix(in srgb, var(--brand-strong) 68%, #ffffff 32%);
+  color: #fff;
+}
+
 .workspace-grid {
   display: grid;
   gap: 0.8rem;
@@ -232,6 +298,22 @@ button:disabled { opacity: 0.7; cursor: not-allowed; }
 }
 
 .card-panel h2, .card-panel h3, .card-panel h4 { margin: 0; }
+
+.title-icon {
+  min-width: 1.7rem;
+  height: 1.7rem;
+  margin-right: 0.45rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--brand) 14%, #eef6f4 86%);
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line) 65%);
+  color: var(--brand-strong);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  font-weight: 800;
+}
 
 .kpi-strip {
   display: grid;
@@ -253,6 +335,13 @@ button:disabled { opacity: 0.7; cursor: not-allowed; }
 
 .stack { display: grid; gap: 0.5rem; }
 .inline-fields { display: grid; gap: 0.45rem; grid-template-columns: 1fr 1fr; }
+
+.field-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
 
 ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
 

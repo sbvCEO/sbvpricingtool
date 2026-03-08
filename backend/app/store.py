@@ -550,13 +550,13 @@ class QuoteStore(_PostgresSupport):
                     cur.execute(
                         """
                         INSERT INTO quotes (
-                          tenant_id, quote_no, customer_external_id, status, currency, region,
-                          price_book_id, subtotal, discount_total, surcharge_total, tax_total,
-                          grand_total, margin_pct, revision_no, valid_until
+                          tenant_id, quote_no, customer_external_id, customer_account_id, opportunity_id,
+                          status, currency, region, price_book_id, subtotal, discount_total, surcharge_total,
+                          tax_total, grand_total, margin_pct, revision_no, valid_until
                         )
                         VALUES (
-                          %(tenant_id)s, %(quote_no)s, %(customer_external_id)s, 'DRAFT', %(currency)s, %(region)s,
-                          %(price_book_id)s, 0, 0, 0, 0, 0, 0, 1, %(valid_until)s
+                          %(tenant_id)s, %(quote_no)s, %(customer_external_id)s, %(customer_account_id)s, %(opportunity_id)s,
+                          'DRAFT', %(currency)s, %(region)s, %(price_book_id)s, 0, 0, 0, 0, 0, 0, 1, %(valid_until)s
                         )
                         RETURNING *
                         """,
@@ -564,6 +564,8 @@ class QuoteStore(_PostgresSupport):
                             "tenant_id": tenant_id,
                             "quote_no": quote_no,
                             "customer_external_id": payload.get("customer_external_id"),
+                            "customer_account_id": payload.get("customer_account_id"),
+                            "opportunity_id": payload.get("opportunity_id"),
                             "currency": payload["currency"],
                             "region": payload.get("region"),
                             "price_book_id": payload["price_book_id"],

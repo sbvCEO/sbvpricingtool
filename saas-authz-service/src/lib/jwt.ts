@@ -21,7 +21,7 @@ export function verifyAndDecodeJwt(token: string): JwtIdentity {
   }
 
   const sub = payload.sub;
-  const email = payload.email as string | undefined;
+  const email = (payload.email as string | undefined) || (sub && sub.includes('@') ? sub : undefined);
 
   if (!sub || !email) {
     throw new Error('Token missing sub/email');

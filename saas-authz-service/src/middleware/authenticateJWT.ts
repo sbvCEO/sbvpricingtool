@@ -35,6 +35,7 @@ export function authenticateJWT(prisma: PrismaClient) {
 
       next();
     } catch (error) {
+      console.error('JWT Auth Error:', error);
       return res.status(401).json({ error: 'Invalid token' });
     }
   };

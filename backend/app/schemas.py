@@ -77,6 +77,8 @@ class PriceBookEntryRead(PriceBookEntryCreate):
 
 class QuoteCreate(BaseModel):
     customer_external_id: str | None = None
+    customer_account_id: UUID | None = None
+    opportunity_id: UUID | None = None
     currency: str
     region: str | None = None
     price_book_id: UUID
@@ -88,6 +90,8 @@ class QuoteRead(BaseModel):
     tenant_id: UUID
     quote_no: str
     customer_external_id: str | None = None
+    customer_account_id: UUID | None = None
+    opportunity_id: UUID | None = None
     status: str
     currency: str
     region: str | None = None
